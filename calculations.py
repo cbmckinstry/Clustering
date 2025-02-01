@@ -21,7 +21,7 @@ def triplevans(vans,triplecrews):
 
 def triplesingle(vans,triple,single):
     trip2vans=2*(triplevans(vans,triple)[0])
-    tripsplit=3*(triplevans(vans,triple)[1])/2
+    tripsplit=3*(triplevans(vans,triple)[1])//2
     with1=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[1]
     with2=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[0]
     shared=single-with1-2*with2
@@ -135,7 +135,7 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
     busSpace=listsum-3*triplesInBus
     if triplesAfterCombo>0 and (vanclusters-vanCarCombo)>0:
         triplesInVans=min(triplesAfterCombo,2*vansAfterTriples//3)
-        vansAfterTriples=vansAfterTriples-3*triplesInVans/2
+        vansAfterTriples=vansAfterTriples-3*triplesInVans//2
         triplesAfterCombo=triplesAfterCombo-triplesInVans
     elif triplesAfterCombo>0 and (carclusters-vanCarCombo)>0:
         triplesInCars=min(triplesAfterCombo,carsAfterTriples//3)
@@ -158,7 +158,7 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
     singlesInBus=min(singlesAfterCars-singlesInVans,busSpace)
 
     carSurplus=carclusters-singlesInCars-vanCarCombo-2*doublesInCars-3*triplesInCars
-    vanSurplus=vanclusters-doublesInVans-vanCarCombo-math.ceil((3*triplesInVans/2)+(singlesInVans/2))
+    vanSurplus=vanclusters-doublesInVans-vanCarCombo-math.ceil((3*triplesInVans//2)+(singlesInVans//2))
     doublesInCars=doublesInCars+min(carSurplus//2,doublesInBus)
     carsPost=carSurplus-(2*min(carSurplus//2,doublesInBus))
     doublesInBus=doublesInBus-min(carSurplus//2,doublesInBus)
@@ -175,7 +175,7 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
 
     VanList=triplesingle(vanclusters-doublesInVans-vanCarCombo,triplesInVans,singlesInVans)
     carsDone=carclusters-singlesInCars-vanCarCombo-2*doublesInCars-3*triplesInCars
-    vansDone=vanclusters-doublesInVans-vanCarCombo-(3*triplesInVans/2)-(singlesInVans/2)
+    vansDone=vanclusters-doublesInVans-vanCarCombo-(3*triplesInVans//2)-(singlesInVans//2)
     busesDone=listsum-3*triplesInBus-2*doublesInBus-singlesInBus
 
     required=max(singlesites+2*doublesites+3*triplesites-carclusters-2*vanclusters,0)

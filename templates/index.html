@@ -15,6 +15,11 @@
             width: 100%;
             margin-right: 30px;
         }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
         .instructions {
             width: 35%;
             padding: 20px;
@@ -89,6 +94,9 @@
 <div class="container">
     <div class="form-container">
         <h1>Clustering</h1>
+        {% if error_message %}
+            <div class="error-message">{{ error_message }}</div>
+        {% endif %}
         <form method="POST">
             <label for="int1">Single Sites:</label>
             <input type="number" id="int1" name="int1" value="{{ request.form['int1'] if request.form['int1'] else '' }}" required><br>
@@ -137,11 +145,11 @@
                 {% if results[7] != 0 and results[11]>=0 %}
                     <li><strong>Double crews in the buses:</strong> {{ results[7] }}</li>{% endif %}
                 {% if results[8][0] != 0 and results[11]>=0 %}
-                    <li><strong>Triples in 2 Vans:</strong> {{ results[8][0]/2 }}</li>{% endif %}
+                    <li><strong>Triples in 2 Vans:</strong> {{ results[8][0]//2 }}</li>{% endif %}
                 {% if results[8][1] != 0 and results[11]>=0 %}
-                    <li><strong>Triples in Shared Vans:</strong> {{ results[8][1]/3 }}</li>{% endif %}
+                    <li><strong>Paired Triples in Three Vans:</strong> {{ results[8][1]//3 }}</li>{% endif %}
                 {% if results[8][4] != 0 and results[11]>=0 %}
-                    <li><strong>Singles with the triple crews that have 2 vans:</strong> {{ results[8][4] }}</li>{% endif %}
+                    <li><strong>Singles Paired with a Triple in 2 vans:</strong> {{ results[8][4] }}</li>{% endif %}
                 {% if results[11]>=0 %}
                     <li><strong>Required number of crews in the buses:</strong> {{ results[9] }}</li>
                     <li><strong>Remaining space in [Cars, Vans, Buses]:</strong> {{ results[10] }}</li>{% endif %}

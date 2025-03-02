@@ -1,6 +1,5 @@
 import math
 
-
 def singlevans(vans,singlecrews):
     if vans>=singlecrews:
         double=0
@@ -25,7 +24,7 @@ def triplesingle(vans,triple,single):
     with1=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[1]
     with2=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[0]
     shared=single-with1-2*with2
-    return [trip2vans,tripsplit,with1,with2,shared]
+    return [int(trip2vans),int(tripsplit),int(with1),int(with2),int(shared)]
 
 def optimalbus(k, L):
     count=0
@@ -55,7 +54,7 @@ def optimalbus(k, L):
         if b%2==0:
             while (sumsixes>0 and b>0):
                 for x in range(len(L)):
-                    if L[x]>=6 and (sumsixes>0 and b>0):
+                    if L[x]>=6 and (sumsixes>0 and b>1):
                         L[x]=L[x]-6
                         b=b-2
                         sumsixes=sumsixes-1
@@ -175,11 +174,12 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
 
     VanList=triplesingle(vanclusters-doublesInVans-vanCarCombo,triplesInVans,singlesInVans)
     carsDone=carclusters-singlesInCars-vanCarCombo-2*doublesInCars-3*triplesInCars
-    vansDone=vanclusters-doublesInVans-vanCarCombo-(3*triplesInVans//2)-(singlesInVans//2)
+    vansDone=2*vanclusters-2*doublesInVans-vanCarCombo-3*triplesInVans-singlesInVans
+
     busesDone=listsum-3*triplesInBus-2*doublesInBus-singlesInBus
 
     required=max(singlesites+2*doublesites+3*triplesites-carclusters-2*vanclusters,0)
-    remain=[carsDone,int(2*vansDone),busesDone]
+    remain=[carsDone,vansDone,busesDone]
 
-    finalList=[singlesInCars,doublesInVans,triplesInBus,doublesInCars,vanCarCombo,triplesInCars,singlesInBus,doublesInBus,VanList,required,remain,issue,abs(issue)]
+    finalList=[int(singlesInCars),int(doublesInVans),int(triplesInBus),int(doublesInCars),int(vanCarCombo),int(triplesInCars),int(singlesInBus),int(doublesInBus),VanList,required,remain,issue,abs(issue)]
     return finalList

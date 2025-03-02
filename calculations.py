@@ -174,7 +174,7 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
 
     VanList=triplesingle(vanclusters-doublesInVans-vanCarCombo,triplesInVans,singlesInVans)
     carsDone=carclusters-singlesInCars-vanCarCombo-2*doublesInCars-3*triplesInCars
-    vansDone=2*vanclusters-2*doublesInVans-vanCarCombo-3*triplesInVans-singlesInVans
+    vansDone=2*vanclusters-2*doublesInVans-2*vanCarCombo-3*triplesInVans-singlesInVans
 
     busesDone=listsum-3*triplesInBus-2*doublesInBus-singlesInBus
 

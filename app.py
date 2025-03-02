@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, session
 import calculations
 from flask_session import Session
 import os
-import redis
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
@@ -11,7 +10,6 @@ app.config["SESSION_TYPE"] = "redis"
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
 app.config["SESSION_KEY_PREFIX"] = "session:"
-app.config["SESSION_REDIS"] = redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
 
 Session(app)
 

@@ -41,7 +41,6 @@
                 width: 90%;
             }
         }
-
         .instructions, .results {
             height: 500px;
             overflow-y: auto;
@@ -145,19 +144,34 @@
                     <div class="results-section">
                         <ul>
                             {% if results[0] != 0 %}
-                                <li><strong>Single Crew Cars:</strong> {{ results[0] }}</li>
+                                <li><strong>Single Crew Cars: </strong> {{ results[0] }}</li>
                             {% endif %}
                             {% if results[1] != 0 %}
-                                <li><strong>Double Crew Vans:</strong> {{ results[1] }}</li>
+                                <li><strong>Double Crew Vans: </strong> {{ results[1] }}</li>
                             {% endif %}
                             {% if results[2] != 0 %}
-                                <li><strong>Triples in Buses:</strong> {{ results[2] }}</li>
+                                <li><strong>Triples in Buses: </strong> {{ results[2] }}</li>
+                            {% endif %}
+                            {% if results[3] != 0 %}
+                                <li><strong>Doubles in Cars: </strong> {{ results[3] }}</li>
+                            {% endif %}
+                            {% if results[4] != 0 %}
+                                <li><strong>Triples in a Van and Car: </strong> {{ results[4] }}</li>
+                            {% endif %}
+                            {% if results[5] != 0 %}
+                                <li><strong>Triples in 3 Cars: </strong> {{ results[5] }}</li>
+                            {% endif %}
+                            {% if results[6] != 0 %}
+                                <li><strong>Singles in the Buses: </strong> {{ results[6] }}</li>
+                            {% endif %}
+                            {% if results[7] != 0 %}
+                                <li><strong>Doubles in the Buses: </strong> {{ results[7] }}</li>
                             {% endif %}
                             {% if results[8][2] != 0 %}
-                                <li><strong>Vans with 1 single crew:</strong> {{ results[8][2] }}</li>
+                                <li><strong>Vans with 1 single crew: </strong> {{ results[8][2] }}</li>
                             {% endif %}
                             {% if results[8][3] != 0 %}
-                                <li><strong>Vans with 2 single crews:</strong> {{ results[8][3] }}</li>
+                                <li><strong>Vans with 2 single crews: </strong> {{ results[8][3] }}</li>
                             {% endif %}
                         </ul>
                     </div>

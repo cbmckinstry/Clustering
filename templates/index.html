@@ -176,15 +176,12 @@
                         </ul>
                     </div>
 
-                    {% if results[9] is not none and results[10] is not none %}
-
+                    {% if results[9] is not none and results[10] is not none%}
                         <h2>Spaces:</h2>
                         <div class="results-eleven">
                             <ul>
                                 <li><strong>Required number of crews in the buses:</strong> {{ results[9] }}</li>
-                                <li><strong>Remaining space in Cars:</strong> {{ results[10][0] }}</li>
-                                <li><strong>Remaining space in Vans:</strong> {{ results[10][1] }}</li>
-                                <li><strong>Remaining space in Buses:</strong> {{ results[10][2] }}</li>
+                                <li><strong>Remaining crew space in [Cars, Vans, Buses]:</strong> {{ results[10] }}</li>
                             </ul>
                         </div>
                     {% endif %}

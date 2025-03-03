@@ -137,9 +137,9 @@
     <div class="column results">
         <h1>Results</h1>
         {% if results %}
-            <ul>
                 {% if results[11] < 0 %}
                    <h3>You need space for {{ results[12] }} more crews!</h3>{% endif %}
+            <ul>
                 {% if results[0] != 0 and results[11]>=0 %}
                     <li><strong>Single Crew Cars:</strong> {{ results[0] }}</li>{% endif %}
                 {% if results[1] != 0 and results[11]>=0 %}

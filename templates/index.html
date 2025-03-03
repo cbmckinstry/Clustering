@@ -167,11 +167,20 @@
                             {% if results[7] != 0 %}
                                 <li><strong>Doubles in the Buses: </strong> {{ results[7] }}</li>
                             {% endif %}
+                            {% if results[8][0] != 0 %}
+                                <li><strong>Triples in 2 Vans: </strong> {{ results[8][0] }}</li>
+                            {% endif %}
+                            {% if results[8][1] != 0 %}
+                                <li><strong>Pairs of Triples in 3 Vans: </strong> {{ results[8][1] }}</li>
+                            {% endif %}
                             {% if results[8][2] != 0 %}
                                 <li><strong>Vans with 1 single crew: </strong> {{ results[8][2] }}</li>
                             {% endif %}
                             {% if results[8][3] != 0 %}
                                 <li><strong>Vans with 2 single crews: </strong> {{ results[8][3] }}</li>
+                            {% endif %}
+                            {% if results[8][4] != 0 %}
+                                <li><strong>Singles in Triple Vans: </strong> {{ results[8][4] }}</li>
                             {% endif %}
                         </ul>
                     </div>

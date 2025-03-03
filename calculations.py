@@ -2,29 +2,31 @@ import math
 
 def singlevans(vans,singlecrews):
     if vans>=singlecrews:
-        double=0
-        single=singlecrews
+        paired=0
+        own=singlecrews
     else:
-        double=singlecrews-vans
-        single=vans-double
-    return [double,single]
+        paired=2*(singlecrews-vans)
+        own=singlecrews-paired
+    return own,paired
 
 def triplevans(vans,triplecrews):
-    if vans>2*triplecrews:
-        vansw2=triplecrews
-        splitting=0
+    if vans>=2*triplecrews:
+        own=triplecrews
+        paired=0
     else:
-        vansw2=2*vans-3*triplecrews
-        splitting=triplecrews-vansw2
-    return [vansw2,splitting]
+        paired=4*triplecrews-2*vans
+        own=triplecrews-paired
+    return own,paired
 
 def triplesingle(vans,triple,single):
-    trip2vans=2*(triplevans(vans,triple)[0])
-    tripsplit=3*(triplevans(vans,triple)[1])//2
-    with1=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[1]
-    with2=singlevans(vans-tripsplit-trip2vans,min(single,2*(vans-tripsplit-trip2vans)))[0]
-    shared=single-with1-2*with2
-    return [int(trip2vans),int(tripsplit),int(with1),int(with2),int(shared)]
+    own,paired=triplevans(vans,triple)
+    remainingVans=vans-2*own-(3*paired)//2
+    if remainingVans>0:
+        ind,pair=singlevans(remainingVans,single)
+    else:
+        ind,pair=0,0
+    shared=single-ind-pair
+    return [int(own),int(paired//2),int(ind),int(pair//2),int(shared)]
 
 def optimalbus(k, L):
     count=0

@@ -137,28 +137,50 @@
     <div class="column results">
         <h1>Results</h1>
         {% if results %}
-                {% if results[11] < 0 %}
-                   <h3>You need space for {{ results[12] }} more crews!</h3>{% endif %}
-            <ul>
-                {% if results[0] != 0 and results[11]>=0 %}
-                    <li><strong>Single Crew Cars:</strong> {{ results[0] }}</li>{% endif %}
-                {% if results[1] != 0 and results[11]>=0 %}
-                    <li><strong>Double Crew Vans:</strong> {{ results[1] }}</li>{% endif %}
-                {% if results[2] != 0 and results[11]>=0 %}
-                    <li><strong>Triples in Buses:</strong> {{ results[2] }}</li>{% endif %}
-                {% if results[8][2] != 0 and results[11]>=0 %}
-                    <li><strong>Vans with 1 single crew:</strong> {{ results[8][2] }}</li>{% endif %}
-                {% if results[8][3] != 0 and results[11]>=0 %}
-                    <li><strong>Vans with 2 single crews:</strong> {{ results[8][3] }}</li>{% endif %}
-                {% if results[11]>=0 %}
-                    <li><strong>Required number of crews in the buses:</strong> {{ results[9] }}</li>
-                    <li><strong>Remaining space in [Cars, Vans, Buses]:</strong> {{ results[10] }}</li>{% endif %}
-            </ul>
+            {% if results[11] < 0 %}
+                <h3>You need space for {{ results[12] }} more crews!</h3>
+            {% else %}
+                <div class="results-container">
+                    <h2>Allocations:</h2>
+                    <div class="results-section">
+                        <ul>
+                            {% if results[0] != 0 %}
+                                <li><strong>Single Crew Cars:</strong> {{ results[0] }}</li>
+                            {% endif %}
+                            {% if results[1] != 0 %}
+                                <li><strong>Double Crew Vans:</strong> {{ results[1] }}</li>
+                            {% endif %}
+                            {% if results[2] != 0 %}
+                                <li><strong>Triples in Buses:</strong> {{ results[2] }}</li>
+                            {% endif %}
+                            {% if results[8][2] != 0 %}
+                                <li><strong>Vans with 1 single crew:</strong> {{ results[8][2] }}</li>
+                            {% endif %}
+                            {% if results[8][3] != 0 %}
+                                <li><strong>Vans with 2 single crews:</strong> {{ results[8][3] }}</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+
+                    {% if results[9] is not none and results[10] is not none %}
+
+                        <h2>Spaces:</h2>
+                        <div class="results-eleven">
+                            <ul>
+                                <li><strong>Required number of crews in the buses:</strong> {{ results[9] }}</li>
+                                <li><strong>Remaining space in Cars:</strong> {{ results[10][0] }}</li>
+                                <li><strong>Remaining space in Vans:</strong> {{ results[10][1] }}</li>
+                                <li><strong>Remaining space in Buses:</strong> {{ results[10][2] }}</li>
+                            </ul>
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
         {% else %}
             <h3>No results to display</h3>
         {% endif %}
     </div>
+
 </div>
 </body>
 </html>
-

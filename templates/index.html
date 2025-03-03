@@ -77,12 +77,23 @@
         ul {
             padding-left: 20px;
         }
+        .results-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .results-section, .results-eleven {
+            padding: 10px;
+            background-color: #e8e8e8;
+            border-radius: 5px;
+            box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+        }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="column instructions">
-        <h2>Instructions</h2>
+        <h1>Instructions</h1>
         <p>Please fill out the form with the necessary information:</p>
         <ul>
             <li><strong>Single Sites:</strong> Enter the number of single crew sites.</li>
@@ -124,11 +135,11 @@
     </div>
 
     <div class="column results">
-        <h2>Results</h2>
+        <h1>Results</h1>
         {% if results %}
             <ul>
                 {% if results[11] < 0 %}
-                    <li><strong>ERROR! This will not work as you lack space. You need space for </strong> {{ results[12] }}</li>{% endif %}
+                   <h3>You need space for {{ results[12] }} more crews</h3>{% endif %}
                 {% if results[0] != 0 and results[11]>=0 %}
                     <li><strong>Single Crew Cars:</strong> {{ results[0] }}</li>{% endif %}
                 {% if results[1] != 0 and results[11]>=0 %}
@@ -143,10 +154,11 @@
                     <li><strong>Required number of crews in the buses:</strong> {{ results[9] }}</li>
                     <li><strong>Remaining space in [Cars, Vans, Buses]:</strong> {{ results[10] }}</li>{% endif %}
             </ul>
-          {% else %}
-            <p><strong>No results to display</strong></p>
+        {% else %}
+            <h3>No results to display</h3>
         {% endif %}
     </div>
 </div>
 </body>
 </html>
+

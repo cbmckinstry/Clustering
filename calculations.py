@@ -4,6 +4,9 @@ def singlevans(vans,singlecrews):
     if vans>=singlecrews:
         paired=0
         own=singlecrews
+    elif 2*vans<singlecrews:
+        paired=2*vans
+        own=0
     else:
         paired=2*(singlecrews-vans)
         own=singlecrews-paired

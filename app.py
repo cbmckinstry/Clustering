@@ -19,12 +19,15 @@ def index():
     if request.method == 'POST':
         try:
         # Get inputs from form
-            int1 = int(request.form['int1'])
-            int2 = int(request.form['int2'])
-            int3 = int(request.form['int3'])
-            int4 = int(request.form['int4'])
-            int5 = int(request.form['int5'])
-            int_list = [int(x) for x in request.form['int_list'].split(',')]
+            int1 = int(request.form['int1'] if request.form['int1'] != '' else 0)
+            int2 = int(request.form['int2'] if request.form['int2'] != '' else 0)
+            int3 = int(request.form['int3'] if request.form['int3'] != '' else 0)
+            int4 = int(request.form['int4'] if request.form['int4'] != '' else 0)
+            int5 = int(request.form['int5'] if request.form['int5'] != '' else 0)
+            req = request.form['int_list'].split(',')
+            if req==['']:
+                req = [0]
+            int_list = [int(x) for x in req]
 
             print("User IP: " +str(user_ip)+", Single Sites: "+ str(int1) + ", Double Sites: " + str(int2) + ", Triple Sites: " + str(int3) + ", Cars: " +str(int4) + ", Vans: " +str(int5) + ", Bus Caps: "+str(int_list))
 

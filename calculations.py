@@ -39,6 +39,9 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
     required=max(singlesites+2*doublesites+3*triplesites-carclusters-2*vanclusters,0)
     issue=carclusters+2*vanclusters+busSpace-singlesites-2*doublesites-3*triplesites
 
+    if singlesites==0 and doublesites==0 and triplesites==0 and carclusters==0 and vanclusters==0 and busSpace==0:
+        return None
+
     if busSpace!=0 and issue>=0:
         return [required]
     if issue<0:

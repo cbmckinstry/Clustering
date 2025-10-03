@@ -87,6 +87,6 @@ def cluster(singlesites,doublesites,triplesites,carclusters,vanclusters,buscapac
 
     VanList=triplesingle(initialVans-doublesInVans-vanCarCombo,triplesInVans,singlesInVans)     #Calculates breakdown of vans
 
-    remain=[carclusters,2*int(vanclusters)]
+    remain=[carclusters,int(2*vanclusters)]
     finalList=[int(singlesInCars),int(doublesInVans),int(doublesInCars),int(vanCarCombo),int(triplesInCars),VanList,remain]
     return finalList

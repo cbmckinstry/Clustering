@@ -149,11 +149,9 @@
                 <div class="results-container">
                     <h2>Allocations:</h2>
                     <div class="results-section">
-                        <h3>No Issue:</h3>
-                        {% if results[0]==0 and results[1] == 0 and results[5][2] == 0 and results[2] == 0 and results[3] == 0 and results[4] == 0 and results[5][0] == 0%}
-                            <p><strong>None</strong></p>
-                        {%endif%}
-                        <ul>
+                        {% if results[0]!=0 or results[1] != 0 or results[5][2]!= 0 %}
+                            <h3>No Change:</h3>
+                            <ul>
                             {% if results[0] != 0 %}
                                 <li><strong>Single Crew Cars: </strong> {{ results[0] }}</li>
                             {% endif %}
@@ -163,6 +161,12 @@
                             {% if results[5][2] != 0 %}
                                 <li><strong>Vans with 1 single crew: </strong> {{ results[5][2] }}</li>
                             {% endif %}
+                            </ul>
+                            {%endif%}
+
+                        {% if results[2]!=0 or results[3] != 0 or results[4]!= 0 or results[5][0] - results[5][4] > 0 %}
+                            <h3>Split:</h3>
+                            <ul>
                             {% if results[2] != 0 %}
                                 <li><strong>Doubles in Cars: </strong> {{ results[2] }}</li>
                             {% endif %}
@@ -172,26 +176,25 @@
                             {% if results[4] != 0 %}
                                 <li><strong>Triples in 3 Cars: </strong> {{ results[4] }}</li>
                             {% endif %}
-                            {% if results[5][0] != 0 %}
-                                <li><strong>Triples in 2 Vans: </strong> {{ results[5][0] }}</li>
+                            {% if results[5][0] - results[5][4] > 0 %}
+                                <li><strong>Triples in 2 Vans: </strong> {{ results[5][0] - results[5][4] }}</li>
                             {% endif %}
-                        </ul>
-                        <h3>Check Map:</h3>
-                            {% if results[5][3]==0 and results[5][1] == 0 and results[5][4] == 0%}
-                                <p><strong>None</strong></p>
-                            {%endif%}
-                        <ul>
-                            {% if results[5][3] != 0 %}
-                                <li><strong>Vans with 2 single crews: </strong> {{ results[5][3] }}</li>
-                            {% endif %}
-                            {% if results[5][4] != 0 %}
-                                <li><strong>Singles in Triple Vans: </strong> {{ results[5][4] }}</li>
-                            {% endif %}
-                            {% if results[5][1] != 0 %}
-                                <li><strong>Pairs of Triples in 3 Vans: </strong> {{ results[5][1] }}</li>
-                            {% endif %}
-                        </ul>
-
+                            </ul>
+                        {%endif%}
+                        {% if results[5][3]!=0 or results[5][1] != 0 or results[5][4] != 0%}
+                            <h3>Cluster:</h3>
+                            <ul>
+                                {% if results[5][3] != 0 %}
+                                    <li><strong>Vans with 2 single crews: </strong> {{ results[5][3] }}</li>
+                                {% endif %}
+                                {% if results[5][4] != 0 %}
+                                    <li><strong>Single and Triple in 2 Vans: </strong> {{ results[5][4] }}</li>
+                                {% endif %}
+                                {% if results[5][1] != 0 %}
+                                    <li><strong>Pairs of Triples in 3 Vans: </strong> {{ results[5][1] }}</li>
+                                {% endif %}
+                            </ul>
+                        {%endif%}
                     </div>
                     {% if results[6] is not none%}
                         <h2>Space Remaining:</h2>

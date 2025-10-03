@@ -11,10 +11,11 @@
             margin: 20px;
             gap: 20px;
         }
+
         .container {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: stretch;
             flex-wrap: wrap;
             gap: 20px;
         }
@@ -26,6 +27,8 @@
             background-color: #f4f4f4;
             border-radius: 8px;
             box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+            height: auto;
+            overflow: visible;
         }
 
         .form-container {
@@ -40,10 +43,6 @@
             .column {
                 width: 90%;
             }
-        }
-        .instructions, .results {
-            height: 500px;
-            overflow-y: auto;
         }
         .error-message {
             color: red;
@@ -73,9 +72,7 @@
         form input[type="submit"]:hover {
             background-color: #45a049;
         }
-        ul {
-            padding-left: 20px;
-        }
+        ul { padding-left: 20px; }
         .results-container {
             display: flex;
             flex-direction: column;
@@ -85,7 +82,7 @@
             padding: 10px;
             background-color: #e8e8e8;
             border-radius: 5px;
-            box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
         }
     </style>
 </head>
@@ -102,20 +99,14 @@
             <li><strong>Van Clusters:</strong> Specify how many clusters of vans you need.</li>
             <li><strong>List of Bus Capacities:</strong> Provide a comma-separated list of bus capacities (in crews).</li>
         </ul>
-
         <h2>How to Use the Form</h2>
         <ol>
-            <li>Submit the form to compute the optimal clustering without using location data.
-                <em>(This original output serves as your baseline.)</em>
-            </li>
             <li>Using your site map, place the minimum required number of crews — or as close as possible — in the buses.</li>
             <li>Resubmit the form after adjusting the site counts and removing the buses to reflect the crews you placed.</li>
             <li>If the result produces clusters that contradict the map, add an additional site to the buses and adjust accordingly.</li>
             <li>Repeat the previous step as needed until the result aligns with your map.</li>
-            <li>For more help, watch this video:
-                <a href="https://youtu.be/12Trhj0RVs8" target="_blank">https://youtu.be/12Trhj0RVs8</a>
-            </li>
         </ol>
+        For more help, watch this video: <a href="https://youtu.be/12Trhj0RVs8" target="_blank">https://youtu.be/12Trhj0RVs8</a>
     </div>
 
     <div class="column form-container">

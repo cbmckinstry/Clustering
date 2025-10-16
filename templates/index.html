@@ -103,7 +103,7 @@
         <ol>
             <li>Submit the form using the numbers from the CM Database.</li>
             <li>Using your site map, place the minimum required number of crews — or as close as possible — in the buses.</li>
-            <li>Resubmit the form after adjusting the site counts and removing the buses to reflect the crews you placed.</li>
+            <li>Resubmit the form after adjusting the site counts and removing all the buses to reflect the crews you placed.</li>
             <li>If the result produces clusters that contradict the map, add a site to the buses, adjust the sites accordingly, and resubmit.</li>
             <li>Repeat the previous step as needed until the result aligns with your map.</li>
         </ol>
@@ -131,7 +131,7 @@
             <label for="int5">Van Clusters:</label>
             <input type="number" id="int5" name="int5" value="{{ request.form['int5'] if request.form['int5'] else '' }}" ><br>
 
-            <label for="int_list">List of Bus Capacities (comma-separated):</label>
+            <label for="int_list">Bus Capacities (comma-separated, in crews):</label>
             <input type="text" id="int_list" name="int_list" value="{{ request.form['int_list'] if request.form['int_list'] else '' }}" ><br>
 
             <input type="submit" value="Submit">

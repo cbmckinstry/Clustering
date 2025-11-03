@@ -10,7 +10,6 @@ def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
     user_agent = request.headers.get("User-Agent", "").lower()
     is_bot = (
-
             "go-http-client/" in user_agent
             or "cron-job.org" in user_agent
             or "uptimerobot.com" in user_agent

@@ -12,6 +12,7 @@ def index():
     is_bot = (
             "go-http-client/" in user_agent
             or "cron-job.org" in user_agent
+            or "uptimerobot.com" in user_agent
             or user_agent.strip() == ""
     )
     if str(user_ip) != '127.0.0.1' and not is_bot:

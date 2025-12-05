@@ -5,13 +5,14 @@
     <title>Collected Data</title>
     <style>
         body { font-family: sans-serif; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 30px; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
         th { background: #f0f0f0; }
-        pre { margin: 0; white-space: pre-wrap; font-family: monospace; }
+        .input-box { white-space: pre-wrap; }
     </style>
 </head>
 <body>
+
 <h1>Collected Data</h1>
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
@@ -21,21 +22,32 @@
     <tr>
         <th>IP</th>
         <th>Timestamp (Central Time)</th>
-        <th>Input</th>
+        <th>Inputs</th>
     </tr>
     </thead>
     <tbody>
     {% for e in entries %}
     <tr>
-        <td>{{ e.ip or e["ip"] }}</td>
-        <td>{{ e.timestamp or e["timestamp"] }}</td>
-        <td><pre>{{ e.input or e["input"] }}</pre></td>
+        <td>{{ e.ip }}</td>
+        <td>{{ e.timestamp }}</td>
+
+        <!-- Clear labeled values -->
+        <td class="input-box">
+            <strong>Single Sites:</strong> {{ e.input.int1 }}<br>
+            <strong>Double Sites:</strong> {{ e.input.int2 }}<br>
+            <strong>Triple Sites:</strong> {{ e.input.int3 }}<br>
+            <strong>Cars:</strong> {{ e.input.int4 }}<br>
+            <strong>Vans:</strong> {{ e.input.int5 }}<br>
+            <strong>Bus Capacities:</strong> {{ e.input.int_list }}
+        </td>
+
     </tr>
     {% endfor %}
     </tbody>
 </table>
 {% else %}
-<p>No entries yet.</p>
+<p>No entries logged yet.</p>
 {% endif %}
+
 </body>
 </html>

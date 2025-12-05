@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Collected Data</title>
+    <style>
+        body { font-family: sans-serif; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+        th { background: #f0f0f0; }
+        pre { margin: 0; white-space: pre-wrap; font-family: monospace; }
+    </style>
+</head>
+<body>
+<h1>Collected Data</h1>
+<p><a href="{{ url_for('index') }}">Back to main page</a></p>
+
+{% if entries %}
+<table>
+    <thead>
+    <tr>
+        <th>IP</th>
+        <th>Timestamp (Central Time)</th>
+        <th>Input</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for e in entries %}
+    <tr>
+        <td>{{ e.ip or e["ip"] }}</td>
+        <td>{{ e.timestamp or e["timestamp"] }}</td>
+        <td><pre>{{ e.input or e["input"] }}</pre></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No entries yet.</p>
+{% endif %}
+</body>
+</html>

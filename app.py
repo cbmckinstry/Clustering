@@ -1,9 +1,19 @@
-from flask import Flask, render_template, request, session
+from flask import Flask, render_template, request, session, redirect, url_for
 import calculations
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo  # for Central Time
+
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
+
+# ------------------------------
+# Simple in-memory data log
+# ------------------------------
+DATA_LOG = []  # resets on restart
+DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")  # set on Render
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -16,36 +26,97 @@ def index():
             or user_agent.strip() == ""
     )
     if str(user_ip) != '127.0.0.1' and not is_bot:
-        print("Viewer IP: "+str(user_ip))
+        print("Viewer IP: " + str(user_ip))
+
     if request.method == 'POST':
         try:
-        # Get inputs from form
+            # Get inputs from form
             int1 = int(request.form['int1'] if request.form['int1'] != '' else 0)
             int2 = int(request.form['int2'] if request.form['int2'] != '' else 0)
             int3 = int(request.form['int3'] if request.form['int3'] != '' else 0)
             int4 = int(request.form['int4'] if request.form['int4'] != '' else 0)
             int5 = int(request.form['int5'] if request.form['int5'] != '' else 0)
+
             req = request.form['int_list'].split(',')
-            if req==['']:
+            if req == ['']:
                 req = [0]
             int_list = [int(x) for x in req]
 
-            print("User IP: " +str(user_ip)+", Single Sites: "+ str(int1) + ", Double Sites: " + str(int2) + ", Triple Sites: " + str(int3) + ", Cars: " +str(int4) + ", Vans: " +str(int5) + ", Bus Caps: "+str(int_list))
+            print(
+                "User IP: " + str(user_ip)
+                + ", Single Sites: " + str(int1)
+                + ", Double Sites: " + str(int2)
+                + ", Triple Sites: " + str(int3)
+                + ", Cars: " + str(int4)
+                + ", Vans: " + str(int5)
+                + ", Bus Caps: " + str(int_list)
+            )
 
+            # --- add to /data log (Central Time) ---
+            DATA_LOG.append(
+                {
+                    "ip": user_ip,
+                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).isoformat(),
+                    "input": {
+                        "int1": int1,
+                        "int2": int2,
+                        "int3": int3,
+                        "int4": int4,
+                        "int5": int5,
+                        "int_list": int_list,
+                    },
+                }
+            )
 
+            # Run your existing calculations
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
-            session['int1']=int1
-            session['int2']=int2
-            session['int3']=int3
-            session['int4']=int4
-            session['int5']=int5
-            session['int_list']=int_list
+
+            # Remember last inputs in the session (optional)
+            session['int1'] = int1
+            session['int2'] = int2
+            session['int3'] = int3
+            session['int4'] = int4
+            session['int5'] = int5
+            session['int_list'] = int_list
 
             return render_template('index.html', results=results, error_message=None)
+
         except Exception as e:
-            print('Error: '+str(e))
-            return render_template('index.html',error_message=f"An error occurred: {str(e)}", results=None)
+            print('Error: ' + str(e))
+            return render_template(
+                'index.html',
+                error_message=f"An error occurred: {str(e)}",
+                results=None
+            )
+
+    # GET request
     return render_template('index.html', results=None, error_message=None)
+
+
+# ------------------------------
+# Password-protected /data tab
+# ------------------------------
+@app.route("/data_login", methods=["GET", "POST"])
+def data_login():
+    error = None
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        if pwd == DATA_PASSWORD:
+            session["data_admin"] = True
+            return redirect(url_for("data_view"))
+        else:
+            error = "Incorrect password."
+    return render_template("data_login.html", error=error)
+
+
+@app.route("/data")
+def data_view():
+    if not session.get("data_admin"):
+        return redirect(url_for("data_login"))
+
+    # newest first
+    entries = list(reversed(DATA_LOG))
+    return render_template("data.html", entries=entries)
 
 
 if __name__ == '__main__':

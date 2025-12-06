@@ -1,48 +1,58 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Collected Data</title>
-    <style>
-        body { font-family: sans-serif; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 30px; }
-        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
-        th { background: #f0f0f0; }
-        .input-box { white-space: pre-wrap; }
-    </style>
-</head>
-<body>
-
-<h1>Collected Data</h1>
-<p><a href="{{ url_for('index') }}">Back to main page</a></p>
-
 {% if entries %}
-<table>
-    <thead>
-    <tr>
-        <th>IP</th>
-        <th>Timestamp (Central Time)</th>
-        <th>Inputs</th>
-    </tr>
-    </thead>
-    <tbody>
-    {% for e in entries %}
-    <tr>
-        <td>{{ e.ip }}</td>
-        <td>{{ e.timestamp }}</td>
 
-        <!-- Clear labeled values -->
-        <td class="input-box">
-            <strong>Single Sites:</strong> {{ e.input.int1 }}  <strong>Double Sites:</strong> {{ e.input.int2 }}  <strong>Triple Sites:</strong> {{ e.input.int3 }}  <strong>Cars:</strong> {{ e.input.int4 }}  <strong>Vans:</strong> {{ e.input.int5 }}  <strong>Bus Capacities:</strong> {{ e.input.int_list }}
-        </td>
+{% set grouped = {} %}
 
-    </tr>
-    {% endfor %}
-    </tbody>
-</table>
+{# ---- Group entries by IP ---- #}
+{% for e in entries %}
+{% set ip = e.ip %}
+{% if ip not in grouped %}
+{% set _ = grouped.update({ ip: [] }) %}
+{% endif %}
+{% set _ = grouped[ip].append(e) %}
+{% endfor %}
+
+<h2>Collected Data (Grouped by IP)</h2>
+
+{% for ip, group in grouped.items() %}
+<div style="margin-bottom: 35px; padding: 10px; border: 2px solid #ccc;">
+
+    <!-- IP + City/State/Country -->
+    <h3>
+        {{ ip }}
+        {% if group[0].geo %}
+        ({{ group[0].geo.city or "Unknown" }},
+        {{ group[0].geo.region or "Unknown" }},
+        {{ group[0].geo.country or "Unknown" }})
+        {% endif %}
+    </h3>
+
+    <table>
+        <thead>
+        <tr>
+            <th>Timestamp (Central Time)</th>
+            <th>Inputs</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for e in group %}
+        <tr>
+            <td>{{ e.timestamp }}</td>
+            <td class="input-box">
+                <strong>Single Sites:</strong> {{ e.input.int1 }}
+                <strong>Double Sites:</strong> {{ e.input.int2 }}
+                <strong>Triple Sites:</strong> {{ e.input.int3 }}
+                <strong>Cars:</strong> {{ e.input.int4 }}
+                <strong>Vans:</strong> {{ e.input.int5 }}
+                <strong>Bus Capacities:</strong> {{ e.input.int_list }}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+</div>
+{% endfor %}
+
 {% else %}
 <p>No entries logged yet.</p>
 {% endif %}
-
-</body>
-</html>

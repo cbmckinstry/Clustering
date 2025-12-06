@@ -1,29 +1,48 @@
-{% if entries %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Collected Data</title>
+    <style>
+        body { font-family: sans-serif; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+        th { background: #f0f0f0; }
+        .input-box { white-space: pre-wrap; }
+        .ip-block {
+            margin-bottom: 35px;
+            padding: 10px;
+            border: 2px solid #ccc;
+        }
+        .ip-heading {
+            margin: 0 0 8px 0;
+        }
+        .ip-meta {
+            font-size: 0.9em;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
 
-{% set grouped = {} %}
+<h1>Collected Data</h1>
+<p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
-{# ---- Group entries by IP ---- #}
-{% for e in entries %}
-{% set ip = e.ip %}
-{% if ip not in grouped %}
-{% set _ = grouped.update({ ip: [] }) %}
-{% endif %}
-{% set _ = grouped[ip].append(e) %}
-{% endfor %}
+{% if grouped_entries %}
+{% for ip, group in grouped_entries.items() %}
+<div class="ip-block">
 
-<h2>Collected Data (Grouped by IP)</h2>
-
-{% for ip, group in grouped.items() %}
-<div style="margin-bottom: 35px; padding: 10px; border: 2px solid #ccc;">
-
-    <h3>
+    <!-- IP header with city/state/country -->
+    <h2 class="ip-heading">
         {{ ip }}
-        {% if group[0].geo %}
-        ({{ group[0].geo.city or "Unknown" }},
-        {{ group[0].geo.region or "Unknown" }},
-        {{ group[0].geo.country or "Unknown" }})
+        {% if group[0].geo is defined and group[0].geo %}
+        <span class="ip-meta">
+                        – {{ group[0].geo.city or 'Unknown city' }},
+                          {{ group[0].geo.region or 'Unknown region' }},
+                          {{ group[0].geo.country or 'Unknown country' }}
+                    </span>
         {% endif %}
-    </h3>
+    </h2>
 
     <table>
         <thead>
@@ -33,25 +52,24 @@
         </tr>
         </thead>
         <tbody>
+
         {% for e in group %}
         <tr>
             <td>{{ e.timestamp }}</td>
             <td class="input-box">
-                <strong>Single Sites:</strong> {{ e.input.int1 }}
-                <strong>Double Sites:</strong> {{ e.input.int2 }}
-                <strong>Triple Sites:</strong> {{ e.input.int3 }}
-                <strong>Cars:</strong> {{ e.input.int4 }}
-                <strong>Vans:</strong> {{ e.input.int5 }}
-                <strong>Bus Capacities:</strong> {{ e.input.int_list }}
+                <strong>Single Sites:</strong> {{ e.input.int1 }}   <strong>Double Sites:</strong> {{ e.input.int2 }}   <strong>Triple Sites:</strong> {{ e.input.int3 }}   <strong>Cars:</strong> {{ e.input.int4 }}   <strong>Vans:</strong> {{ e.input.int5 }}   <strong>Bus Capacities:</strong> {{ e.input.int_list }}
             </td>
         </tr>
         {% endfor %}
+
         </tbody>
     </table>
 
 </div>
 {% endfor %}
-
 {% else %}
 <p>No entries logged yet.</p>
 {% endif %}
+
+</body>
+</html>

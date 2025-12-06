@@ -114,9 +114,16 @@ def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    # newest first
+    # newest first overall
     entries = list(reversed(DATA_LOG))
-    return render_template("data.html", entries=entries)
+
+    # Group by IP
+    grouped_entries = {}
+    for e in entries:
+        ip = e["ip"]
+        grouped_entries.setdefault(ip, []).append(e)
+
+    return render_template("data.html", grouped_entries=grouped_entries)
 
 
 if __name__ == '__main__':

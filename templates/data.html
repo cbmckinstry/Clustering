@@ -6,20 +6,26 @@
     <style>
         body { font-family: sans-serif; }
         table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: middle; }
         th { background: #f0f0f0; }
-        .input-box { white-space: pre-wrap; }
+
+        /* Keep each row on a single line */
+        .input-box {
+            white-space: nowrap;
+        }
+
         .ip-block {
             margin-bottom: 35px;
-            padding: 10px;
+            padding: 12px;
             border: 2px solid #ccc;
         }
-        .ip-heading {
-            margin: 0 0 8px 0;
-        }
-        .ip-meta {
-            font-size: 0.9em;
-            color: #555;
+
+        .ip-heading { margin: 0 0 4px 0; }
+        .ip-meta { font-size: 0.9em; color: #555; margin-left: 6px; }
+
+        .label {
+            font-weight: normal;
+            margin-right: 4px;
         }
     </style>
 </head>
@@ -28,19 +34,30 @@
 <h1>Collected Data</h1>
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
+<form action="{{ url_for('wipe_data') }}" method="POST"
+      onsubmit="return confirm('Are you sure you want to delete ALL entries? This cannot be undone.');">
+    <button type="submit" style="margin-bottom: 15px; padding: 6px 12px;">
+        Wipe All Entries
+    </button>
+</form>
+
 {% if grouped_entries %}
 {% for ip, group in grouped_entries.items() %}
 <div class="ip-block">
 
-    <!-- IP header with city/state/country -->
+    {# IP header with city/state/country (if available) #}
+    {% set g = group[0].geo if group[0].geo is defined else None %}
+
     <h2 class="ip-heading">
         {{ ip }}
-        {% if group[0].geo is defined and group[0].geo %}
+        {% if g %}
         <span class="ip-meta">
-                        – {{ group[0].geo.city or 'Unknown city' }},
-                          {{ group[0].geo.region or 'Unknown region' }},
-                          {{ group[0].geo.country or 'Unknown country' }}
-                    </span>
+                    ({{ g.city or 'Unknown city' }},
+                     {{ g.region or 'Unknown region' }},
+                     {{ g.country or 'Unknown country' }})
+                </span>
+        {% else %}
+        <span class="ip-meta">(Location unknown)</span>
         {% endif %}
     </h2>
 
@@ -54,10 +71,25 @@
         <tbody>
 
         {% for e in group %}
+        {% set inp = e.input if e.input is defined else None %}
         <tr>
             <td>{{ e.timestamp }}</td>
             <td class="input-box">
-                <strong>Single Sites:</strong> {{ e.input.int1 }}   <strong>Double Sites:</strong> {{ e.input.int2 }}   <strong>Triple Sites:</strong> {{ e.input.int3 }}   <strong>Cars:</strong> {{ e.input.int4 }}   <strong>Vans:</strong> {{ e.input.int5 }}   <strong>Bus Capacities:</strong> {{ e.input.int_list }}
+                {% if not inp %}
+                NULL
+                {% else %}
+                <span class="label">Single Sites:</span>{{ inp.int1 if inp.int1 is not none else "NULL" }}
+                &nbsp;&nbsp;
+                <span class="label">Double Sites:</span>{{ inp.int2 if inp.int2 is not none else "NULL" }}
+                &nbsp;&nbsp;
+                <span class="label">Triple Sites:</span>{{ inp.int3 if inp.int3 is not none else "NULL" }}
+                &nbsp;&nbsp;
+                <span class="label">Cars:</span>{{ inp.int4 if inp.int4 is not none else "NULL" }}
+                &nbsp;&nbsp;
+                <span class="label">Vans:</span>{{ inp.int5 if inp.int5 is not none else "NULL" }}
+                &nbsp;&nbsp;
+                <span class="label">Bus Capacities:</span>{{ inp.int_list if inp.int_list is not none else "NULL" }}
+                {% endif %}
             </td>
         </tr>
         {% endfor %}

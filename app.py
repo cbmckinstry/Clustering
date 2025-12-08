@@ -5,7 +5,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # for Central Time
 import requests
 import json
-import requests
 
 app = Flask(__name__)
 
@@ -73,6 +72,18 @@ def index():
         location_print = ", ".join([s for s in [city_str, region_str, country_str] if s])
         print("Approx. location:", location_print)
 
+    # --- Optional: log pure viewers (GET) with null input ---
+    if request.method == "GET" and not is_bot:
+        DATA_LOG.append(
+            {
+                "ip": user_ip,
+                "geo": geo,  # may be None if lookup failed
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d,  %H:%M:%S"),
+                "event": "view",
+                "input": None,  # viewer: no inputs
+            }
+        )
+
     if request.method == 'POST':
         try:
             # Get inputs from form
@@ -102,7 +113,8 @@ def index():
                 {
                     "ip": user_ip,
                     "geo": geo,  # may be None if lookup failed
-                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).isoformat(),
+                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d,  %H:%M:%S"),
+                    "event": "submit",
                     "input": {
                         "int1": int1,
                         "int2": int2,
@@ -135,7 +147,7 @@ def index():
                 results=None
             )
 
-    # GET request
+    # GET request (or after logging viewer)
     return render_template('index.html', results=None, error_message=None)
 
 
@@ -170,6 +182,17 @@ def data_view():
         grouped_entries.setdefault(ip, []).append(e)
 
     return render_template("data.html", grouped_entries=grouped_entries)
+
+
+@app.route("/wipe_data", methods=["POST"])
+def wipe_data():
+    if not session.get("data_admin"):
+        return redirect(url_for("data_login"))
+
+    # In this app, logging is in-memory only
+    DATA_LOG.clear()
+
+    return redirect(url_for("data_view"))
 
 
 if __name__ == '__main__':

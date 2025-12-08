@@ -218,6 +218,7 @@ def delete_entry():
     return redirect(url_for("data_view"))
 
 
+
 @app.route("/wipe_data", methods=["POST"])
 def wipe_data():
     if not session.get("data_admin"):

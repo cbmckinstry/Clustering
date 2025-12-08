@@ -4,17 +4,19 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo  # for Central Time
 import requests
-import json
 
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
-# ------------------------------
-# Simple in-memory data log
-# ------------------------------
-DATA_LOG = []  # resets on restart
-DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")  # set on Render
+DATA_LOG = []
+LOG_COUNTER = 0
+
+DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
+
+DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
+DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
+DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
 
 # ------------------------------
@@ -49,6 +51,23 @@ def lookup_city(ip: str):
         return None
 
 
+def _next_log_id():
+    """Return a unique, incrementing ID for each log entry."""
+    global LOG_COUNTER
+    LOG_COUNTER += 1
+    return LOG_COUNTER
+
+
+def _build_grouped_entries():
+    """Group current DATA_LOG entries by IP (newest → oldest per IP)."""
+    entries = list(reversed(DATA_LOG))  # newest first overall
+    grouped = {}
+    for e in entries:
+        ip = e["ip"]
+        grouped.setdefault(ip, []).append(e)
+    return grouped
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
@@ -72,17 +91,19 @@ def index():
         location_print = ", ".join([s for s in [city_str, region_str, country_str] if s])
         print("Approx. location:", location_print)
 
-    # --- Optional: log pure viewers (GET) with null input ---
+    # --- Log viewer (GET) with null input ---
     if request.method == "GET" and not is_bot:
         DATA_LOG.append(
             {
+                "id": _next_log_id(),
                 "ip": user_ip,
                 "geo": geo,  # may be None if lookup failed
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d,  %H:%M:%S"),
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
                 "event": "view",
                 "input": None,  # viewer: no inputs
             }
         )
+        print("Logged viewer; DATA_LOG size:", len(DATA_LOG))
 
     if request.method == 'POST':
         try:
@@ -111,9 +132,10 @@ def index():
             # --- add to /data log (Central Time + location) ---
             DATA_LOG.append(
                 {
+                    "id": _next_log_id(),
                     "ip": user_ip,
                     "geo": geo,  # may be None if lookup failed
-                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d,  %H:%M:%S"),
+                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
                     "event": "submit",
                     "input": {
                         "int1": int1,
@@ -125,11 +147,12 @@ def index():
                     },
                 }
             )
+            print("Logged submit; DATA_LOG size:", len(DATA_LOG))
 
             # Run your existing calculations
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
-            # Remember last inputs in the session (optional)
+            # Remember last inputs in the session (for UX only)
             session['int1'] = int1
             session['int2'] = int2
             session['int3'] = int3
@@ -150,18 +173,23 @@ def index():
     # GET request (or after logging viewer)
     return render_template('index.html', results=None, error_message=None)
 
+
+# ------------------------------
+# View password for /data
+# ------------------------------
 @app.route("/data_login", methods=["GET", "POST"])
 def data_login():
     error = None
     if request.method == "POST":
         pwd = request.form.get("password", "")
-        if pwd == DATA_PASSWORD:
+        if pwd == DATA_PASSWORD_VIEW:
             session["data_admin"] = True
+            # reset delete unlock when (re)entering the data center
+            session.pop("delete_unlocked", None)
             return redirect(url_for("data_view"))
         else:
             error = "Incorrect password."
     return render_template("data_login.html", error=error)
-
 
 
 @app.route("/data")
@@ -169,25 +197,71 @@ def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    # newest first overall
-    entries = list(reversed(DATA_LOG))
-
-    # Group by IP
-    grouped_entries = {}
-    for e in entries:
-        ip = e["ip"]
-        grouped_entries.setdefault(ip, []).append(e)
-
-    return render_template("data.html", grouped_entries=grouped_entries)
+    grouped_entries = _build_grouped_entries()
+    return render_template(
+        "data.html",
+        grouped_entries=grouped_entries,
+        delete_error=None,
+        wipe_error=None,
+    )
 
 
+# ------------------------------
+# Delete a single entry (2nd password, remembered after first success)
+# ------------------------------
+@app.route("/delete_entry", methods=["POST"])
+def delete_entry():
+    if not session.get("data_admin"):
+        return redirect(url_for("data_login"))
+
+    entry_id = request.form.get("entry_id", type=int)
+    if entry_id is None:
+        return redirect(url_for("data_view"))
+
+    delete_unlocked = session.get("delete_unlocked", False)
+
+    if not delete_unlocked:
+        pwd = request.form.get("delete_password", "")
+        if pwd != DATA_PASSWORD_DELETE:
+            grouped_entries = _build_grouped_entries()
+            return render_template(
+                "data.html",
+                grouped_entries=grouped_entries,
+                delete_error="Incorrect delete password.",
+                wipe_error=None,
+            )
+        # correct delete password: unlock for this session
+        session["delete_unlocked"] = True
+
+    # perform the deletion
+    global DATA_LOG
+    DATA_LOG = [e for e in DATA_LOG if e.get("id") != entry_id]
+    print(f"Deleted entry {entry_id}; DATA_LOG size now:", len(DATA_LOG))
+
+    return redirect(url_for("data_view"))
+
+
+# ------------------------------
+# Wipe all entries (3rd password, required every time)
+# ------------------------------
 @app.route("/wipe_data", methods=["POST"])
 def wipe_data():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    # In-memory only for this app
+    pwd = request.form.get("wipe_password", "")
+    if pwd != DATA_PASSWORD_WIPE:
+        grouped_entries = _build_grouped_entries()
+        return render_template(
+            "data.html",
+            grouped_entries=grouped_entries,
+            delete_error=None,
+            wipe_error="Incorrect wipe password.",
+        )
+
+    # correct wipe password → clear everything
     DATA_LOG.clear()
+    print("DATA_LOG cleared by wipe_data")
 
     return redirect(url_for("data_view"))
 

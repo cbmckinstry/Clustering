@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, session, redirect, url_for
 import calculations
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo  # for Central Time
+from zoneinfo import ZoneInfo
 import requests
 
 app = Flask(__name__)
@@ -18,15 +18,7 @@ DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
-
-# ------------------------------
-# IP → City/Region/Country lookup
-# ------------------------------
 def lookup_city(ip: str):
-    """
-    Lookup using ip-api.com (no API key required).
-    Returns dict {city, region, country} or None on failure.
-    """
     try:
         # Localhost / dev
         if ip.startswith("127.") or ip == "::1":
@@ -59,8 +51,7 @@ def _next_log_id():
 
 
 def _build_grouped_entries():
-    """Group current DATA_LOG entries by IP (newest → oldest per IP)."""
-    entries = list(reversed(DATA_LOG))  # newest first overall
+    entries = list(reversed(DATA_LOG))
     grouped = {}
     for e in entries:
         ip = e["ip"]
@@ -91,23 +82,21 @@ def index():
         location_print = ", ".join([s for s in [city_str, region_str, country_str] if s])
         print("Approx. location:", location_print)
 
-    # --- Log viewer (GET) with null input ---
     if request.method == "GET" and not is_bot:
         DATA_LOG.append(
             {
                 "id": _next_log_id(),
                 "ip": user_ip,
-                "geo": geo,  # may be None if lookup failed
+                "geo": geo,
                 "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
                 "event": "view",
-                "input": None,  # viewer: no inputs
+                "input": None,
             }
         )
         print("Logged viewer; DATA_LOG size:", len(DATA_LOG))
 
     if request.method == 'POST':
         try:
-            # Get inputs from form
             int1 = int(request.form['int1'] if request.form['int1'] != '' else 0)
             int2 = int(request.form['int2'] if request.form['int2'] != '' else 0)
             int3 = int(request.form['int3'] if request.form['int3'] != '' else 0)
@@ -129,12 +118,11 @@ def index():
                 ", Bus Caps:", int_list
             )
 
-            # --- add to /data log (Central Time + location) ---
             DATA_LOG.append(
                 {
                     "id": _next_log_id(),
                     "ip": user_ip,
-                    "geo": geo,  # may be None if lookup failed
+                    "geo": geo,
                     "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
                     "event": "submit",
                     "input": {
@@ -149,10 +137,8 @@ def index():
             )
             print("Logged submit; DATA_LOG size:", len(DATA_LOG))
 
-            # Run your existing calculations
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
-            # Remember last inputs in the session (for UX only)
             session['int1'] = int1
             session['int2'] = int2
             session['int3'] = int3
@@ -170,13 +156,9 @@ def index():
                 results=None
             )
 
-    # GET request (or after logging viewer)
     return render_template('index.html', results=None, error_message=None)
 
 
-# ------------------------------
-# View password for /data
-# ------------------------------
 @app.route("/data_login", methods=["GET", "POST"])
 def data_login():
     error = None
@@ -184,7 +166,6 @@ def data_login():
         pwd = request.form.get("password", "")
         if pwd == DATA_PASSWORD_VIEW:
             session["data_admin"] = True
-            # reset delete unlock when (re)entering the data center
             session.pop("delete_unlocked", None)
             return redirect(url_for("data_view"))
         else:
@@ -206,9 +187,6 @@ def data_view():
     )
 
 
-# ------------------------------
-# Delete a single entry (2nd password, remembered after first success)
-# ------------------------------
 @app.route("/delete_entry", methods=["POST"])
 def delete_entry():
     if not session.get("data_admin"):
@@ -230,7 +208,6 @@ def delete_entry():
                 delete_error="Incorrect delete password.",
                 wipe_error=None,
             )
-        # correct delete password: unlock for this session
         session["delete_unlocked"] = True
 
     # perform the deletion
@@ -241,9 +218,6 @@ def delete_entry():
     return redirect(url_for("data_view"))
 
 
-# ------------------------------
-# Wipe all entries (3rd password, required every time)
-# ------------------------------
 @app.route("/wipe_data", methods=["POST"])
 def wipe_data():
     if not session.get("data_admin"):
@@ -259,7 +233,6 @@ def wipe_data():
             wipe_error="Incorrect wipe password.",
         )
 
-    # correct wipe password → clear everything
     DATA_LOG.clear()
     print("DATA_LOG cleared by wipe_data")
 

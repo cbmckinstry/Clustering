@@ -172,7 +172,8 @@ def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    # newest first overall
+    session.pop("data_admin", None)
+
     entries = list(reversed(DATA_LOG))
 
     # Group by IP

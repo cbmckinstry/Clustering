@@ -150,10 +150,6 @@ def index():
     # GET request (or after logging viewer)
     return render_template('index.html', results=None, error_message=None)
 
-
-# ------------------------------
-# Password-protected /data tab
-# ------------------------------
 @app.route("/data_login", methods=["GET", "POST"])
 def data_login():
     error = None
@@ -167,13 +163,13 @@ def data_login():
     return render_template("data_login.html", error=error)
 
 
+
 @app.route("/data")
 def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    session.pop("data_admin", None)
-
+    # newest first overall
     entries = list(reversed(DATA_LOG))
 
     # Group by IP
@@ -190,7 +186,7 @@ def wipe_data():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    # In this app, logging is in-memory only
+    # In-memory only for this app
     DATA_LOG.clear()
 
     return redirect(url_for("data_view"))

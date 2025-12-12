@@ -11,10 +11,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
 # ============================================================
-# PERSISTENT DATA LOG (file-backed)
-# - DATA_LOG is still a normal Python list
-# - Every append/delete/wipe is persisted to disk
-# - Loads previous entries on boot
+# PERSISTENT DATA LOG (disk-backed)
 # ============================================================
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(app.instance_path) / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -25,12 +22,19 @@ ID_FILE = DATA_DIR / "data_log_id_counter.txt"
 DATA_LOG = []
 LOG_COUNTER = 0
 
+DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
+DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
+DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
+DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
+
 
 def _load_log_from_disk():
+    """Load DATA_LOG + LOG_COUNTER from disk on startup."""
     global DATA_LOG, LOG_COUNTER
-    # Load entries
+
+    # Load log entries
+    entries = []
     if DATA_FILE.exists():
-        entries = []
         with DATA_FILE.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -39,43 +43,39 @@ def _load_log_from_disk():
                 try:
                     entries.append(json.loads(line))
                 except Exception:
-                    # skip corrupted lines
+                    # Skip corrupted lines rather than crashing
                     continue
-        DATA_LOG = entries
-    else:
-        DATA_LOG = []
+    DATA_LOG = entries
 
-    # Load counter (or derive from max id)
+    # Load counter
     if ID_FILE.exists():
         try:
-            LOG_COUNTER = int(ID_FILE.read_text().strip() or "0")
+            LOG_COUNTER = int(ID_FILE.read_text(encoding="utf-8").strip() or "0")
         except Exception:
             LOG_COUNTER = 0
     else:
         LOG_COUNTER = 0
 
-    # Safety: ensure counter >= max existing id
+    # Ensure counter is at least max existing id
     try:
         max_id = max((int(e.get("id", 0)) for e in DATA_LOG), default=0)
         if LOG_COUNTER < max_id:
             LOG_COUNTER = max_id
-            ID_FILE.write_text(str(LOG_COUNTER))
+            ID_FILE.write_text(str(LOG_COUNTER), encoding="utf-8")
     except Exception:
         pass
 
 
 def _persist_counter():
-    ID_FILE.write_text(str(int(LOG_COUNTER)))
+    ID_FILE.write_text(str(int(LOG_COUNTER)), encoding="utf-8")
 
 
 def _append_to_disk(entry: dict):
-    # Append one line (fast path)
     with DATA_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _rewrite_disk(entries):
-    # Atomic-ish rewrite: write tmp then replace
     tmp = DATA_FILE.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         for e in entries:
@@ -83,16 +83,8 @@ def _rewrite_disk(entries):
     tmp.replace(DATA_FILE)
 
 
-# Load existing log on startup
+# Load existing log as the app starts
 _load_log_from_disk()
-
-# ============================================================
-# Passwords (unchanged)
-# ============================================================
-DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
-DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
-DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
-DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
 
 def lookup_city(ip: str):
@@ -132,7 +124,7 @@ def _build_grouped_entries():
     entries = list(reversed(DATA_LOG))
     grouped = {}
     for e in entries:
-        ip = e.get("ip", "Unknown IP")
+        ip = e["ip"]
         grouped.setdefault(ip, []).append(e)
     return grouped
 
@@ -311,6 +303,7 @@ def wipe_data():
             wipe_error="Incorrect wipe password.",
         )
 
+    global LOG_COUNTER
     DATA_LOG.clear()
     _rewrite_disk(DATA_LOG)
     LOG_COUNTER = 0
@@ -318,6 +311,7 @@ def wipe_data():
     print("DATA_LOG cleared by wipe_data")
 
     return redirect(url_for("data_view"))
+
 
 if __name__ == "__main__":
     print("DATA_DIR:", DATA_DIR)

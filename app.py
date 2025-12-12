@@ -319,7 +319,6 @@ def wipe_data():
 
     return redirect(url_for("data_view"))
 
-
 if __name__ == "__main__":
     print("DATA_DIR:", DATA_DIR)
     print("DATA_FILE:", DATA_FILE)

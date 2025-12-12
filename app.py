@@ -287,7 +287,6 @@ def delete_entry():
 
     return redirect(url_for("data_view"))
 
-
 @app.route("/wipe_data", methods=["POST"])
 def wipe_data():
     if not session.get("data_admin"):
@@ -311,7 +310,6 @@ def wipe_data():
     print("DATA_LOG cleared by wipe_data")
 
     return redirect(url_for("data_view"))
-
 
 if __name__ == "__main__":
     print("DATA_DIR:", DATA_DIR)

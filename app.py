@@ -242,7 +242,6 @@ def data_login():
             error = "Incorrect password."
     return render_template("data_login.html", error=error)
 
-
 @app.route("/data")
 def data_view():
     if not session.get("data_admin"):

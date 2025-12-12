@@ -12,9 +12,9 @@ import json
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
-# -------------------------------------------------
-# Sessions (matches your other file)
-# -------------------------------------------------
+# ------------------------------
+# Sessions (OK even without Redis)
+# ------------------------------
 redis_url = os.environ.get("REDIS_URL")
 
 app.config["SESSION_PERMANENT"] = False
@@ -32,76 +32,67 @@ else:
 
 Session(app)
 
-# -------------------------------------------------
-# Logging storage (Redis + fallback)
-# -------------------------------------------------
-DATA_LOG = []
-LOG_COUNTER = 0
-
 DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
+LOG_KEY = os.environ.get("LOG_KEY", "data_log_v2")
+ID_KEY = f"{LOG_KEY}:id_counter"
 
 def _get_redis():
-    return app.config.get("SESSION_REDIS")
-
-
-def _next_local_id():
-    global LOG_COUNTER
-    LOG_COUNTER += 1
-    return LOG_COUNTER
+    r = app.config.get("SESSION_REDIS")
+    if r is None:
+        return None
+    try:
+        r.ping()
+        return r
+    except Exception:
+        return None
 
 
 def log_append(entry: dict):
     r = _get_redis()
-    entry = dict(entry)
+    if r is None:
+        # If Redis isn't connected, you cannot persist across deploys.
+        # Fail loudly so you don't get "it didn't work" confusion.
+        raise RuntimeError("REDIS_URL is not set/working, so logs cannot persist on Render.")
 
-    if r is not None:
-        if "id" not in entry:
-            entry["id"] = int(r.incr("data_log_v2:id_counter"))
-        r.rpush("data_log_v2", json.dumps(entry))
-    else:
-        if "id" not in entry:
-            entry["id"] = _next_local_id()
-        DATA_LOG.append(entry)
+    entry = dict(entry)
+    if "id" not in entry:
+        entry["id"] = int(r.incr(ID_KEY))
+    r.rpush(LOG_KEY, json.dumps(entry))
 
 
 def log_get_all():
     r = _get_redis()
-    if r is not None:
-        raw = r.lrange("data_log_v2", 0, -1)
-        return [json.loads(x) for x in raw]
-    return list(DATA_LOG)
+    if r is None:
+        return []
+    raw = r.lrange(LOG_KEY, 0, -1)
+    return [json.loads(x) for x in raw]
 
 
 def log_replace_all(entries):
     r = _get_redis()
-    if r is not None:
-        pipe = r.pipeline()
-        pipe.delete("data_log_v2")
-        for e in entries:
-            pipe.rpush("data_log_v2", json.dumps(e))
-        pipe.execute()
-    else:
-        global DATA_LOG
-        DATA_LOG = list(entries)
+    if r is None:
+        raise RuntimeError("REDIS_URL is not set/working, cannot edit logs.")
+    pipe = r.pipeline()
+    pipe.delete(LOG_KEY)
+    for e in entries:
+        pipe.rpush(LOG_KEY, json.dumps(e))
+    pipe.execute()
 
 
 def log_clear_all():
     r = _get_redis()
-    if r is not None:
-        r.delete("data_log_v2")
-        r.delete("data_log_v2:id_counter")
-    else:
-        global DATA_LOG, LOG_COUNTER
-        DATA_LOG.clear()
-        LOG_COUNTER = 0
+    if r is None:
+        raise RuntimeError("REDIS_URL is not set/working, cannot wipe logs.")
+    r.delete(LOG_KEY)
+    r.delete(ID_KEY)
 
 
 def build_grouped_entries():
-    entries = list(reversed(log_get_all()))  # newest first overall
+    entries = list(reversed(log_get_all()))
     grouped = {}
     for e in entries:
         ip = e.get("ip", "Unknown IP")
@@ -109,20 +100,15 @@ def build_grouped_entries():
     return grouped
 
 
-# -------------------------------------------------
-# Geo lookup (unchanged)
-# -------------------------------------------------
 def lookup_city(ip: str):
     try:
         if ip.startswith("127.") or ip == "::1":
             return {"city": "Localhost", "region": None, "country": None}
 
-        url = f"http://ip-api.com/json/{ip}"
-        resp = requests.get(url, timeout=2)
+        resp = requests.get(f"http://ip-api.com/json/{ip}", timeout=2)
         data = resp.json()
 
         if data.get("status") != "success":
-            print(f"Geo lookup failed for {ip}: {data.get('message')}")
             return None
 
         return {
@@ -130,15 +116,10 @@ def lookup_city(ip: str):
             "region": data.get("regionName"),
             "country": data.get("country"),
         }
-
-    except Exception as e:
-        print("Geo lookup exception:", e)
+    except Exception:
         return None
 
 
-# -------------------------------------------------
-# Routes (same behavior as your simple app)
-# -------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
@@ -150,69 +131,40 @@ def index():
             or user_agent.strip() == ""
     )
 
-    if str(user_ip) != "127.0.0.1" and not is_bot:
-        print("Viewer IP:", user_ip)
-
     geo = lookup_city(user_ip)
-    if geo:
-        city_str = geo.get("city") or "Unknown city"
-        region_str = geo.get("region") or ""
-        country_str = geo.get("country") or ""
-        location_print = ", ".join([s for s in [city_str, region_str, country_str] if s])
-        print("Approx. location:", location_print)
 
     if request.method == "GET" and not is_bot:
-        log_append(
-            {
-                "ip": user_ip,
-                "geo": geo,
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                "event": "view",
-                "input": None,
-            }
-        )
-        print("Logged viewer; entries:", len(log_get_all()))
+        log_append({
+            "ip": user_ip,
+            "geo": geo,
+            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+            "event": "view",
+            "input": None,
+        })
 
     if request.method == "POST":
         try:
-            int1 = int(request.form["int1"] if request.form["int1"] != "" else 0)
-            int2 = int(request.form["int2"] if request.form["int2"] != "" else 0)
-            int3 = int(request.form["int3"] if request.form["int3"] != "" else 0)
-            int4 = int(request.form["int4"] if request.form["int4"] != "" else 0)
-            int5 = int(request.form["int5"] if request.form["int5"] != "" else 0)
+            int1 = int(request.form["int1"] or 0)
+            int2 = int(request.form["int2"] or 0)
+            int3 = int(request.form["int3"] or 0)
+            int4 = int(request.form["int4"] or 0)
+            int5 = int(request.form["int5"] or 0)
 
             req = request.form["int_list"].split(",")
             if req == [""]:
                 req = [0]
             int_list = [int(x) for x in req]
 
-            print(
-                "User IP:", user_ip,
-                ", Single Sites:", int1,
-                ", Double Sites:", int2,
-                ", Triple Sites:", int3,
-                ", Cars:", int4,
-                ", Vans:", int5,
-                ", Bus Caps:", int_list,
-            )
-
-            log_append(
-                {
-                    "ip": user_ip,
-                    "geo": geo,
-                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                    "event": "submit",
-                    "input": {
-                        "int1": int1,
-                        "int2": int2,
-                        "int3": int3,
-                        "int4": int4,
-                        "int5": int5,
-                        "int_list": int_list,
-                    },
-                }
-            )
-            print("Logged submit; entries:", len(log_get_all()))
+            log_append({
+                "ip": user_ip,
+                "geo": geo,
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                "event": "submit",
+                "input": {
+                    "int1": int1, "int2": int2, "int3": int3,
+                    "int4": int4, "int5": int5, "int_list": int_list
+                },
+            })
 
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
@@ -226,12 +178,7 @@ def index():
             return render_template("index.html", results=results, error_message=None)
 
         except Exception as e:
-            print("Error:", e)
-            return render_template(
-                "index.html",
-                error_message=f"An error occurred: {str(e)}",
-                results=None,
-            )
+            return render_template("index.html", error_message=f"An error occurred: {str(e)}", results=None)
 
     return render_template("index.html", results=None, error_message=None)
 
@@ -245,8 +192,7 @@ def data_login():
             session["data_admin"] = True
             session.pop("delete_unlocked", None)
             return redirect(url_for("data_view"))
-        else:
-            error = "Incorrect password."
+        error = "Incorrect password."
     return render_template("data_login.html", error=error)
 
 
@@ -256,12 +202,8 @@ def data_view():
         return redirect(url_for("data_login"))
 
     grouped_entries = build_grouped_entries()
-    return render_template(
-        "data.html",
-        grouped_entries=grouped_entries,
-        delete_error=None,
-        wipe_error=None,
-    )
+    return render_template("data.html", grouped_entries=grouped_entries, delete_error=None, wipe_error=None)
+
 
 @app.route("/delete_entry", methods=["POST"])
 def delete_entry():
@@ -289,8 +231,6 @@ def delete_entry():
     entries = log_get_all()
     filtered = [e for e in entries if e.get("id") != entry_id]
     log_replace_all(filtered)
-    print(f"Deleted entry {entry_id}; remaining entries: {len(filtered)}")
-
     return redirect(url_for("data_view"))
 
 
@@ -310,8 +250,6 @@ def wipe_data():
         )
 
     log_clear_all()
-    print("All entries wiped.")
-
     return redirect(url_for("data_view"))
 
 

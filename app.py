@@ -263,7 +263,6 @@ def data_view():
         wipe_error=None,
     )
 
-
 @app.route("/delete_entry", methods=["POST"])
 def delete_entry():
     if not session.get("data_admin"):

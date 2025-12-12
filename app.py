@@ -1,24 +1,40 @@
 from flask import Flask, render_template, request, session, redirect, url_for
+from flask_session import Session
 import calculations
 import os
+import redis
+from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
 import json
-from pathlib import Path
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
-# ============================================================
-# PERSISTENT DATA LOG (disk-backed)
-# ============================================================
-DATA_DIR = Path(os.environ.get("DATA_DIR", Path(app.instance_path) / "data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+# -------------------------------------------------
+# Sessions (matches your other file)
+# -------------------------------------------------
+redis_url = os.environ.get("REDIS_URL")
 
-DATA_FILE = DATA_DIR / "data_log.jsonl"
-ID_FILE = DATA_DIR / "data_log_id_counter.txt"
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+app.config["SESSION_KEY_PREFIX"] = "session:"
 
+if redis_url:
+    app.config["SESSION_TYPE"] = "redis"
+    app.config["SESSION_REDIS"] = redis.from_url(redis_url)
+else:
+    app.config["SESSION_TYPE"] = "filesystem"
+    session_dir = Path(app.instance_path) / "flask_session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    app.config["SESSION_FILE_DIR"] = str(session_dir)
+
+Session(app)
+
+# -------------------------------------------------
+# Logging storage (Redis + fallback)
+# -------------------------------------------------
 DATA_LOG = []
 LOG_COUNTER = 0
 
@@ -28,68 +44,76 @@ DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
 
-def _load_log_from_disk():
-    """Load DATA_LOG + LOG_COUNTER from disk on startup."""
-    global DATA_LOG, LOG_COUNTER
+def _get_redis():
+    return app.config.get("SESSION_REDIS")
 
-    # Load log entries
-    entries = []
-    if DATA_FILE.exists():
-        with DATA_FILE.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except Exception:
-                    # Skip corrupted lines rather than crashing
-                    continue
-    DATA_LOG = entries
 
-    # Load counter
-    if ID_FILE.exists():
-        try:
-            LOG_COUNTER = int(ID_FILE.read_text(encoding="utf-8").strip() or "0")
-        except Exception:
-            LOG_COUNTER = 0
+def _next_local_id():
+    global LOG_COUNTER
+    LOG_COUNTER += 1
+    return LOG_COUNTER
+
+
+def log_append(entry: dict):
+    r = _get_redis()
+    entry = dict(entry)
+
+    if r is not None:
+        if "id" not in entry:
+            entry["id"] = int(r.incr("data_log_v2:id_counter"))
+        r.rpush("data_log_v2", json.dumps(entry))
     else:
+        if "id" not in entry:
+            entry["id"] = _next_local_id()
+        DATA_LOG.append(entry)
+
+
+def log_get_all():
+    r = _get_redis()
+    if r is not None:
+        raw = r.lrange("data_log_v2", 0, -1)
+        return [json.loads(x) for x in raw]
+    return list(DATA_LOG)
+
+
+def log_replace_all(entries):
+    r = _get_redis()
+    if r is not None:
+        pipe = r.pipeline()
+        pipe.delete("data_log_v2")
+        for e in entries:
+            pipe.rpush("data_log_v2", json.dumps(e))
+        pipe.execute()
+    else:
+        global DATA_LOG
+        DATA_LOG = list(entries)
+
+
+def log_clear_all():
+    r = _get_redis()
+    if r is not None:
+        r.delete("data_log_v2")
+        r.delete("data_log_v2:id_counter")
+    else:
+        global DATA_LOG, LOG_COUNTER
+        DATA_LOG.clear()
         LOG_COUNTER = 0
 
-    # Ensure counter is at least max existing id
-    try:
-        max_id = max((int(e.get("id", 0)) for e in DATA_LOG), default=0)
-        if LOG_COUNTER < max_id:
-            LOG_COUNTER = max_id
-            ID_FILE.write_text(str(LOG_COUNTER), encoding="utf-8")
-    except Exception:
-        pass
+
+def build_grouped_entries():
+    entries = list(reversed(log_get_all()))  # newest first overall
+    grouped = {}
+    for e in entries:
+        ip = e.get("ip", "Unknown IP")
+        grouped.setdefault(ip, []).append(e)
+    return grouped
 
 
-def _persist_counter():
-    ID_FILE.write_text(str(int(LOG_COUNTER)), encoding="utf-8")
-
-
-def _append_to_disk(entry: dict):
-    with DATA_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
-def _rewrite_disk(entries):
-    tmp = DATA_FILE.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        for e in entries:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
-    tmp.replace(DATA_FILE)
-
-
-# Load existing log as the app starts
-_load_log_from_disk()
-
-
+# -------------------------------------------------
+# Geo lookup (unchanged)
+# -------------------------------------------------
 def lookup_city(ip: str):
     try:
-        # Localhost / dev
         if ip.startswith("127.") or ip == "::1":
             return {"city": "Localhost", "region": None, "country": None}
 
@@ -112,23 +136,9 @@ def lookup_city(ip: str):
         return None
 
 
-def _next_log_id():
-    """Return a unique, incrementing ID for each log entry (persisted)."""
-    global LOG_COUNTER
-    LOG_COUNTER += 1
-    _persist_counter()
-    return LOG_COUNTER
-
-
-def _build_grouped_entries():
-    entries = list(reversed(DATA_LOG))
-    grouped = {}
-    for e in entries:
-        ip = e["ip"]
-        grouped.setdefault(ip, []).append(e)
-    return grouped
-
-
+# -------------------------------------------------
+# Routes (same behavior as your simple app)
+# -------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
@@ -143,7 +153,6 @@ def index():
     if str(user_ip) != "127.0.0.1" and not is_bot:
         print("Viewer IP:", user_ip)
 
-    # --- City lookup (for logging & /data) ---
     geo = lookup_city(user_ip)
     if geo:
         city_str = geo.get("city") or "Unknown city"
@@ -153,17 +162,16 @@ def index():
         print("Approx. location:", location_print)
 
     if request.method == "GET" and not is_bot:
-        entry = {
-            "id": _next_log_id(),
-            "ip": user_ip,
-            "geo": geo,
-            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-            "event": "view",
-            "input": None,
-        }
-        DATA_LOG.append(entry)
-        _append_to_disk(entry)
-        print("Logged viewer; DATA_LOG size:", len(DATA_LOG))
+        log_append(
+            {
+                "ip": user_ip,
+                "geo": geo,
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                "event": "view",
+                "input": None,
+            }
+        )
+        print("Logged viewer; entries:", len(log_get_all()))
 
     if request.method == "POST":
         try:
@@ -185,27 +193,26 @@ def index():
                 ", Triple Sites:", int3,
                 ", Cars:", int4,
                 ", Vans:", int5,
-                ", Bus Caps:", int_list
+                ", Bus Caps:", int_list,
             )
 
-            entry = {
-                "id": _next_log_id(),
-                "ip": user_ip,
-                "geo": geo,
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                "event": "submit",
-                "input": {
-                    "int1": int1,
-                    "int2": int2,
-                    "int3": int3,
-                    "int4": int4,
-                    "int5": int5,
-                    "int_list": int_list,
-                },
-            }
-            DATA_LOG.append(entry)
-            _append_to_disk(entry)
-            print("Logged submit; DATA_LOG size:", len(DATA_LOG))
+            log_append(
+                {
+                    "ip": user_ip,
+                    "geo": geo,
+                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                    "event": "submit",
+                    "input": {
+                        "int1": int1,
+                        "int2": int2,
+                        "int3": int3,
+                        "int4": int4,
+                        "int5": int5,
+                        "int_list": int_list,
+                    },
+                }
+            )
+            print("Logged submit; entries:", len(log_get_all()))
 
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
@@ -242,12 +249,13 @@ def data_login():
             error = "Incorrect password."
     return render_template("data_login.html", error=error)
 
+
 @app.route("/data")
 def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
 
-    grouped_entries = _build_grouped_entries()
+    grouped_entries = build_grouped_entries()
     return render_template(
         "data.html",
         grouped_entries=grouped_entries,
@@ -270,7 +278,7 @@ def delete_entry():
     if not delete_unlocked:
         pwd = request.form.get("delete_password", "")
         if pwd != DATA_PASSWORD_DELETE:
-            grouped_entries = _build_grouped_entries()
+            grouped_entries = build_grouped_entries()
             return render_template(
                 "data.html",
                 grouped_entries=grouped_entries,
@@ -279,12 +287,13 @@ def delete_entry():
             )
         session["delete_unlocked"] = True
 
-    global DATA_LOG
-    DATA_LOG = [e for e in DATA_LOG if e.get("id") != entry_id]
-    _rewrite_disk(DATA_LOG)
-    print(f"Deleted entry {entry_id}; DATA_LOG size now:", len(DATA_LOG))
+    entries = log_get_all()
+    filtered = [e for e in entries if e.get("id") != entry_id]
+    log_replace_all(filtered)
+    print(f"Deleted entry {entry_id}; remaining entries: {len(filtered)}")
 
     return redirect(url_for("data_view"))
+
 
 @app.route("/wipe_data", methods=["POST"])
 def wipe_data():
@@ -293,7 +302,7 @@ def wipe_data():
 
     pwd = request.form.get("wipe_password", "")
     if pwd != DATA_PASSWORD_WIPE:
-        grouped_entries = _build_grouped_entries()
+        grouped_entries = build_grouped_entries()
         return render_template(
             "data.html",
             grouped_entries=grouped_entries,
@@ -301,16 +310,11 @@ def wipe_data():
             wipe_error="Incorrect wipe password.",
         )
 
-    global LOG_COUNTER
-    DATA_LOG.clear()
-    _rewrite_disk(DATA_LOG)
-    LOG_COUNTER = 0
-    _persist_counter()
-    print("DATA_LOG cleared by wipe_data")
+    log_clear_all()
+    print("All entries wiped.")
 
     return redirect(url_for("data_view"))
 
+
 if __name__ == "__main__":
-    print("DATA_DIR:", DATA_DIR)
-    print("DATA_FILE:", DATA_FILE)
     app.run()

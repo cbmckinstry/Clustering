@@ -4,19 +4,96 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
+import json
+from pathlib import Path
 
 app = Flask(__name__)
-
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
+
+# ============================================================
+# PERSISTENT DATA LOG (file-backed)
+# - DATA_LOG is still a normal Python list
+# - Every append/delete/wipe is persisted to disk
+# - Loads previous entries on boot
+# ============================================================
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(app.instance_path) / "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DATA_FILE = DATA_DIR / "data_log.jsonl"
+ID_FILE = DATA_DIR / "data_log_id_counter.txt"
 
 DATA_LOG = []
 LOG_COUNTER = 0
 
-DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 
+def _load_log_from_disk():
+    global DATA_LOG, LOG_COUNTER
+    # Load entries
+    if DATA_FILE.exists():
+        entries = []
+        with DATA_FILE.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    # skip corrupted lines
+                    continue
+        DATA_LOG = entries
+    else:
+        DATA_LOG = []
+
+    # Load counter (or derive from max id)
+    if ID_FILE.exists():
+        try:
+            LOG_COUNTER = int(ID_FILE.read_text().strip() or "0")
+        except Exception:
+            LOG_COUNTER = 0
+    else:
+        LOG_COUNTER = 0
+
+    # Safety: ensure counter >= max existing id
+    try:
+        max_id = max((int(e.get("id", 0)) for e in DATA_LOG), default=0)
+        if LOG_COUNTER < max_id:
+            LOG_COUNTER = max_id
+            ID_FILE.write_text(str(LOG_COUNTER))
+    except Exception:
+        pass
+
+
+def _persist_counter():
+    ID_FILE.write_text(str(int(LOG_COUNTER)))
+
+
+def _append_to_disk(entry: dict):
+    # Append one line (fast path)
+    with DATA_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _rewrite_disk(entries):
+    # Atomic-ish rewrite: write tmp then replace
+    tmp = DATA_FILE.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for e in entries:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    tmp.replace(DATA_FILE)
+
+
+# Load existing log on startup
+_load_log_from_disk()
+
+# ============================================================
+# Passwords (unchanged)
+# ============================================================
+DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
+
 
 def lookup_city(ip: str):
     try:
@@ -44,9 +121,10 @@ def lookup_city(ip: str):
 
 
 def _next_log_id():
-    """Return a unique, incrementing ID for each log entry."""
+    """Return a unique, incrementing ID for each log entry (persisted)."""
     global LOG_COUNTER
     LOG_COUNTER += 1
+    _persist_counter()
     return LOG_COUNTER
 
 
@@ -54,12 +132,12 @@ def _build_grouped_entries():
     entries = list(reversed(DATA_LOG))
     grouped = {}
     for e in entries:
-        ip = e["ip"]
+        ip = e.get("ip", "Unknown IP")
         grouped.setdefault(ip, []).append(e)
     return grouped
 
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/", methods=["GET", "POST"])
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
     user_agent = request.headers.get("User-Agent", "").lower()
@@ -70,7 +148,7 @@ def index():
             or user_agent.strip() == ""
     )
 
-    if str(user_ip) != '127.0.0.1' and not is_bot:
+    if str(user_ip) != "127.0.0.1" and not is_bot:
         print("Viewer IP:", user_ip)
 
     # --- City lookup (for logging & /data) ---
@@ -83,28 +161,28 @@ def index():
         print("Approx. location:", location_print)
 
     if request.method == "GET" and not is_bot:
-        DATA_LOG.append(
-            {
-                "id": _next_log_id(),
-                "ip": user_ip,
-                "geo": geo,
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                "event": "view",
-                "input": None,
-            }
-        )
+        entry = {
+            "id": _next_log_id(),
+            "ip": user_ip,
+            "geo": geo,
+            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+            "event": "view",
+            "input": None,
+        }
+        DATA_LOG.append(entry)
+        _append_to_disk(entry)
         print("Logged viewer; DATA_LOG size:", len(DATA_LOG))
 
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
-            int1 = int(request.form['int1'] if request.form['int1'] != '' else 0)
-            int2 = int(request.form['int2'] if request.form['int2'] != '' else 0)
-            int3 = int(request.form['int3'] if request.form['int3'] != '' else 0)
-            int4 = int(request.form['int4'] if request.form['int4'] != '' else 0)
-            int5 = int(request.form['int5'] if request.form['int5'] != '' else 0)
+            int1 = int(request.form["int1"] if request.form["int1"] != "" else 0)
+            int2 = int(request.form["int2"] if request.form["int2"] != "" else 0)
+            int3 = int(request.form["int3"] if request.form["int3"] != "" else 0)
+            int4 = int(request.form["int4"] if request.form["int4"] != "" else 0)
+            int5 = int(request.form["int5"] if request.form["int5"] != "" else 0)
 
-            req = request.form['int_list'].split(',')
-            if req == ['']:
+            req = request.form["int_list"].split(",")
+            if req == [""]:
                 req = [0]
             int_list = [int(x) for x in req]
 
@@ -118,45 +196,45 @@ def index():
                 ", Bus Caps:", int_list
             )
 
-            DATA_LOG.append(
-                {
-                    "id": _next_log_id(),
-                    "ip": user_ip,
-                    "geo": geo,
-                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                    "event": "submit",
-                    "input": {
-                        "int1": int1,
-                        "int2": int2,
-                        "int3": int3,
-                        "int4": int4,
-                        "int5": int5,
-                        "int_list": int_list,
-                    },
-                }
-            )
+            entry = {
+                "id": _next_log_id(),
+                "ip": user_ip,
+                "geo": geo,
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                "event": "submit",
+                "input": {
+                    "int1": int1,
+                    "int2": int2,
+                    "int3": int3,
+                    "int4": int4,
+                    "int5": int5,
+                    "int_list": int_list,
+                },
+            }
+            DATA_LOG.append(entry)
+            _append_to_disk(entry)
             print("Logged submit; DATA_LOG size:", len(DATA_LOG))
 
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
-            session['int1'] = int1
-            session['int2'] = int2
-            session['int3'] = int3
-            session['int4'] = int4
-            session['int5'] = int5
-            session['int_list'] = int_list
+            session["int1"] = int1
+            session["int2"] = int2
+            session["int3"] = int3
+            session["int4"] = int4
+            session["int5"] = int5
+            session["int_list"] = int_list
 
-            return render_template('index.html', results=results, error_message=None)
+            return render_template("index.html", results=results, error_message=None)
 
         except Exception as e:
-            print('Error:', e)
+            print("Error:", e)
             return render_template(
-                'index.html',
+                "index.html",
                 error_message=f"An error occurred: {str(e)}",
-                results=None
+                results=None,
             )
 
-    return render_template('index.html', results=None, error_message=None)
+    return render_template("index.html", results=None, error_message=None)
 
 
 @app.route("/data_login", methods=["GET", "POST"])
@@ -210,13 +288,12 @@ def delete_entry():
             )
         session["delete_unlocked"] = True
 
-    # perform the deletion
     global DATA_LOG
     DATA_LOG = [e for e in DATA_LOG if e.get("id") != entry_id]
+    _rewrite_disk(DATA_LOG)
     print(f"Deleted entry {entry_id}; DATA_LOG size now:", len(DATA_LOG))
 
     return redirect(url_for("data_view"))
-
 
 
 @app.route("/wipe_data", methods=["POST"])
@@ -235,10 +312,15 @@ def wipe_data():
         )
 
     DATA_LOG.clear()
+    _rewrite_disk(DATA_LOG)
+    LOG_COUNTER = 0
+    _persist_counter()
     print("DATA_LOG cleared by wipe_data")
 
     return redirect(url_for("data_view"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    print("DATA_DIR:", DATA_DIR)
+    print("DATA_FILE:", DATA_FILE)
     app.run()

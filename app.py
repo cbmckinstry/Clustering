@@ -57,8 +57,8 @@ DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 # ------------------------------
 # Admin TTL (60 seconds)
 # ------------------------------
-ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "60"))
-DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "60"))
+ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "30"))
+DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "30"))
 
 def _now() -> float:
     return time.time()

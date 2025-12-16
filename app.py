@@ -55,9 +55,12 @@ DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
 # ------------------------------
-# Admin TTL (60 seconds)
+# Admin TTL (seconds)
 # ------------------------------
 ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "60"))
+
+# If 0 => requires delete password every delete
+# If >0 => after entering delete password once, it stays unlocked for that many seconds
 DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "0"))
 
 def _now() -> float:
@@ -114,7 +117,6 @@ def log_append(entry: dict):
             entry["id"] = int(r.incr(ID_KEY))
         r.rpush(LOG_KEY, json.dumps(entry))
     else:
-        # local/dev fallback
         if "id" not in entry:
             entry["id"] = _next_local_id()
         DATA_LOG.append(entry)
@@ -259,7 +261,15 @@ def data_view():
         return redirect(url_for("data_login"))
 
     grouped_entries = build_grouped_entries()
-    return render_template("data.html", grouped_entries=grouped_entries, delete_error=None, wipe_error=None)
+    delete_unlocked = is_delete_unlocked()
+
+    return render_template(
+        "data.html",
+        grouped_entries=grouped_entries,
+        delete_unlocked=delete_unlocked,
+        delete_error=None,
+        wipe_error=None,
+    )
 
 @app.route("/delete_entry", methods=["POST"], strict_slashes=False)
 def delete_entry():
@@ -279,10 +289,12 @@ def delete_entry():
             return render_template(
                 "data.html",
                 grouped_entries=grouped_entries,
+                delete_unlocked=is_delete_unlocked(),
                 delete_error="Incorrect delete password.",
                 wipe_error=None,
             )
         session["delete_unlocked_until"] = _now() + DELETE_TTL_SECONDS
+        delete_unlocked = is_delete_unlocked()
 
     entries = log_get_all()
     filtered = [e for e in entries if e.get("id") != entry_id]
@@ -300,6 +312,7 @@ def wipe_data():
         return render_template(
             "data.html",
             grouped_entries=grouped_entries,
+            delete_unlocked=is_delete_unlocked(),
             delete_error=None,
             wipe_error="Incorrect wipe password.",
         )

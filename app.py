@@ -27,12 +27,10 @@ app.config.update(
 # ------------------------------
 redis_url = os.environ.get("REDIS_URL")
 
-app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_PERMANENT"] = False  # browser-session cookie (ends when browser closes)
 app.config["SESSION_USE_SIGNER"] = True
 
 # IMPORTANT: isolate session keys between apps sharing Redis
-# Render env example:
-#   SESSION_KEY_PREFIX=session:clustering:
 app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session:clustering:")
 
 if redis_url:
@@ -47,17 +45,25 @@ else:
 Session(app)
 
 # ------------------------------
-# Admin passwords
+# Passwords
 # ------------------------------
+# /data (view/delete/wipe MAIN log)
 DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
+# /trainer (view-only MAIN log)
+TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me-trainer")
+
+# /carson (view-only ARCHIVE log) - NO TIME LIMIT once authed
+CARSON_PASSWORD_VIEW = os.environ.get("CARSON_PASSWORD_VIEW", "change-me-carson")
+
 # ------------------------------
-# Admin TTL (seconds)
+# TTLs
 # ------------------------------
 ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "300"))
+TRAINER_TTL_SECONDS = int(os.environ.get("TRAINER_TTL_SECONDS", "300"))
 
 # If 0 => requires delete password every delete
 # If >0 => after entering delete password once, it stays unlocked for that many seconds
@@ -66,6 +72,9 @@ DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "30"))
 def _now() -> float:
     return time.time()
 
+# ------------------------------
+# Auth helpers
+# ------------------------------
 def is_admin_authed() -> bool:
     return session.get("data_admin_until", 0) > _now()
 
@@ -79,19 +88,35 @@ def require_admin() -> bool:
 def is_delete_unlocked() -> bool:
     return session.get("delete_unlocked_until", 0) > _now()
 
+def is_trainer_authed() -> bool:
+    return session.get("trainer_until", 0) > _now()
+
+# NO TIME LIMIT for carson (until browser session ends)
+def is_carson_authed() -> bool:
+    return bool(session.get("carson_authed", False))
+
 # ------------------------------
 # Logging keys (Redis)
 # ------------------------------
-# IMPORTANT: isolate log keys between apps sharing the same Redis
-# Render env example:
-#   DATA_KEY_PREFIX=clustering:data_log_v2
+# MAIN log (mutable): /data + /trainer see this
 DATA_KEY_PREFIX = os.environ.get("DATA_KEY_PREFIX", "clustering:data_log_v2").strip() or "clustering:data_log_v2"
 LOG_KEY = DATA_KEY_PREFIX
 ID_KEY = f"{DATA_KEY_PREFIX}:id_counter"
 
+# ARCHIVE log (immutable): /carson sees this; never wiped/deleted/edited
+ARCHIVE_KEY_PREFIX = os.environ.get("ARCHIVE_KEY_PREFIX", "clustering:archive_v1").strip() or "clustering:archive_v1"
+ARCHIVE_LOG_KEY = ARCHIVE_KEY_PREFIX
+ARCHIVE_ID_KEY = f"{ARCHIVE_KEY_PREFIX}:id_counter"
+
+# HARD SAFETY CHECK
+if LOG_KEY == ARCHIVE_LOG_KEY:
+    raise RuntimeError("FATAL CONFIG ERROR: DATA_KEY_PREFIX and ARCHIVE_KEY_PREFIX must be different.")
+
 # Local fallback storage (dev)
 DATA_LOG = []
+ARCHIVE_LOG = []
 LOG_COUNTER = 0
+ARCHIVE_COUNTER = 0
 
 def _get_redis():
     r = app.config.get("SESSION_REDIS")
@@ -108,7 +133,17 @@ def _next_local_id():
     LOG_COUNTER += 1
     return LOG_COUNTER
 
+def _next_archive_local_id():
+    global ARCHIVE_COUNTER
+    ARCHIVE_COUNTER += 1
+    return ARCHIVE_COUNTER
+
 def log_append(entry: dict):
+    """
+    Append to BOTH:
+      - MAIN log (mutable)
+      - ARCHIVE log (immutable)
+    """
     r = _get_redis()
     entry = dict(entry)
 
@@ -116,19 +151,34 @@ def log_append(entry: dict):
         if "id" not in entry:
             entry["id"] = int(r.incr(ID_KEY))
         r.rpush(LOG_KEY, json.dumps(entry))
+
+        archive_entry = dict(entry)
+        archive_entry["archive_id"] = int(r.incr(ARCHIVE_ID_KEY))
+        r.rpush(ARCHIVE_LOG_KEY, json.dumps(archive_entry))
     else:
         if "id" not in entry:
             entry["id"] = _next_local_id()
         DATA_LOG.append(entry)
 
-def log_get_all():
+        archive_entry = dict(entry)
+        archive_entry["archive_id"] = _next_archive_local_id()
+        ARCHIVE_LOG.append(archive_entry)
+
+def log_get_all_main():
     r = _get_redis()
     if r is not None:
         raw = r.lrange(LOG_KEY, 0, -1)
         return [json.loads(x) for x in raw]
     return list(DATA_LOG)
 
-def log_replace_all(entries):
+def log_get_all_archive():
+    r = _get_redis()
+    if r is not None:
+        raw = r.lrange(ARCHIVE_LOG_KEY, 0, -1)
+        return [json.loads(x) for x in raw]
+    return list(ARCHIVE_LOG)
+
+def log_replace_all_main(entries):
     r = _get_redis()
     if r is not None:
         pipe = r.pipeline()
@@ -140,7 +190,8 @@ def log_replace_all(entries):
         global DATA_LOG
         DATA_LOG = list(entries)
 
-def log_clear_all():
+def log_clear_main():
+    """Wipe ONLY MAIN log keys (archive untouched)."""
     r = _get_redis()
     if r is not None:
         r.delete(LOG_KEY)
@@ -150,8 +201,8 @@ def log_clear_all():
         DATA_LOG.clear()
         LOG_COUNTER = 0
 
-def build_grouped_entries():
-    entries = list(reversed(log_get_all()))
+def build_grouped_entries(entries):
+    entries = list(reversed(entries))
     grouped = {}
     for e in entries:
         ip = e.get("ip", "Unknown IP")
@@ -177,6 +228,9 @@ def lookup_city(ip: str):
     except Exception:
         return None
 
+# ------------------------------
+# Main page
+# ------------------------------
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
@@ -243,6 +297,9 @@ def index():
 
     return render_template("index.html", results=None, error_message=None)
 
+# ==========================================================
+# /data (EDITOR) — login + view + delete + wipe MAIN
+# ==========================================================
 @app.route("/data_login", methods=["GET", "POST"], strict_slashes=False)
 def data_login():
     error = None
@@ -260,13 +317,11 @@ def data_view():
     if not require_admin():
         return redirect(url_for("data_login"))
 
-    grouped_entries = build_grouped_entries()
-    delete_unlocked = is_delete_unlocked()
-
+    grouped_entries = build_grouped_entries(log_get_all_main())
     return render_template(
         "data.html",
         grouped_entries=grouped_entries,
-        delete_unlocked=delete_unlocked,
+        delete_unlocked=is_delete_unlocked(),
         delete_error=None,
         wipe_error=None,
     )
@@ -280,12 +335,10 @@ def delete_entry():
     if entry_id is None:
         return redirect(url_for("data_view"))
 
-    delete_unlocked = is_delete_unlocked()
-
-    if not delete_unlocked:
+    if not is_delete_unlocked():
         pwd = request.form.get("delete_password", "")
         if pwd != DATA_PASSWORD_DELETE:
-            grouped_entries = build_grouped_entries()
+            grouped_entries = build_grouped_entries(log_get_all_main())
             return render_template(
                 "data.html",
                 grouped_entries=grouped_entries,
@@ -294,11 +347,10 @@ def delete_entry():
                 wipe_error=None,
             )
         session["delete_unlocked_until"] = _now() + DELETE_TTL_SECONDS
-        delete_unlocked = is_delete_unlocked()
 
-    entries = log_get_all()
+    entries = log_get_all_main()
     filtered = [e for e in entries if e.get("id") != entry_id]
-    log_replace_all(filtered)
+    log_replace_all_main(filtered)
     return redirect(url_for("data_view"))
 
 @app.route("/wipe_data", methods=["POST"], strict_slashes=False)
@@ -308,7 +360,7 @@ def wipe_data():
 
     pwd = request.form.get("wipe_password", "")
     if pwd != DATA_PASSWORD_WIPE:
-        grouped_entries = build_grouped_entries()
+        grouped_entries = build_grouped_entries(log_get_all_main())
         return render_template(
             "data.html",
             grouped_entries=grouped_entries,
@@ -317,8 +369,54 @@ def wipe_data():
             wipe_error="Incorrect wipe password.",
         )
 
-    log_clear_all()
+    log_clear_main()  # MAIN cleared; ARCHIVE untouched
     return redirect(url_for("data_view"))
+
+# ==========================================================
+# /trainer (VIEWER) — view-only MAIN (changes with /data)
+# ==========================================================
+@app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
+def trainer_login():
+    error = None
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        if pwd == TRAINER_PASSWORD_VIEW:
+            session["trainer_until"] = _now() + TRAINER_TTL_SECONDS
+            return redirect(url_for("trainer_view"))
+        error = "Incorrect password."
+    return render_template("trainer_login.html", error=error)
+
+@app.route("/trainer", strict_slashes=False)
+def trainer_view():
+    if not is_trainer_authed():
+        session.pop("trainer_until", None)
+        return redirect(url_for("trainer_login"))
+
+    grouped_entries = build_grouped_entries(log_get_all_main())
+    return render_template("trainer.html", grouped_entries=grouped_entries)
+
+# ==========================================================
+# /carson (IMMUTABLE VIEWER) — view-only ARCHIVE (NO TIME LIMIT)
+# ==========================================================
+@app.route("/carson_login", methods=["GET", "POST"], strict_slashes=False)
+def carson_login():
+    error = None
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        if pwd == CARSON_PASSWORD_VIEW:
+            session["carson_authed"] = True  # no expiry
+            return redirect(url_for("carson_view"))
+        error = "Incorrect password."
+    return render_template("carson_login.html", error=error)
+
+@app.route("/carson", strict_slashes=False)
+def carson_view():
+    if not is_carson_authed():
+        session.pop("carson_authed", None)
+        return redirect(url_for("carson_login"))
+
+    grouped_entries = build_grouped_entries(log_get_all_archive())
+    return render_template("carson.html", grouped_entries=grouped_entries)
 
 if __name__ == "__main__":
     app.run()

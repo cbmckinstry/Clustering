@@ -265,6 +265,5 @@ def wipe_data():
     log_clear_all()
     return redirect(url_for("data_view"))
 
-
 if __name__ == "__main__":
     app.run()

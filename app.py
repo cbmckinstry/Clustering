@@ -13,13 +13,17 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
 # ------------------------------
-# Sessions (OK even without Redis)
+# Sessions
 # ------------------------------
 redis_url = os.environ.get("REDIS_URL")
 
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
-app.config["SESSION_KEY_PREFIX"] = "session:"
+
+# IMPORTANT: isolate session keys between apps sharing Redis
+# Render env example for this app:
+#   SESSION_KEY_PREFIX=session:clustering:
+app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session:clustering:")
 
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
@@ -32,13 +36,24 @@ else:
 
 Session(app)
 
+# ------------------------------
+# Admin passwords
+# ------------------------------
 DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 
-LOG_KEY = os.environ.get("LOG_KEY", "data_log_v2")
-ID_KEY = f"{LOG_KEY}:id_counter"
+# ------------------------------
+# Logging keys (Redis)
+# ------------------------------
+# IMPORTANT: isolate log keys between apps sharing Redis
+# Render env example for this app:
+#   DATA_KEY_PREFIX=clustering:data_log_v2
+DATA_KEY_PREFIX = os.environ.get("DATA_KEY_PREFIX", "clustering:data_log_v2").strip() or "clustering:data_log_v2"
+LOG_KEY = DATA_KEY_PREFIX
+ID_KEY = f"{DATA_KEY_PREFIX}:id_counter"
+
 
 def _get_redis():
     r = app.config.get("SESSION_REDIS")
@@ -54,8 +69,6 @@ def _get_redis():
 def log_append(entry: dict):
     r = _get_redis()
     if r is None:
-        # If Redis isn't connected, you cannot persist across deploys.
-        # Fail loudly so you don't get "it didn't work" confusion.
         raise RuntimeError("REDIS_URL is not set/working, so logs cannot persist on Render.")
 
     entry = dict(entry)
@@ -120,7 +133,7 @@ def lookup_city(ip: str):
         return None
 
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
     user_agent = request.headers.get("User-Agent", "").lower()
@@ -144,16 +157,16 @@ def index():
 
     if request.method == "POST":
         try:
-            int1 = int(request.form["int1"] or 0)
-            int2 = int(request.form["int2"] or 0)
-            int3 = int(request.form["int3"] or 0)
-            int4 = int(request.form["int4"] or 0)
-            int5 = int(request.form["int5"] or 0)
+            int1 = int(request.form.get("int1") or 0)
+            int2 = int(request.form.get("int2") or 0)
+            int3 = int(request.form.get("int3") or 0)
+            int4 = int(request.form.get("int4") or 0)
+            int5 = int(request.form.get("int5") or 0)
 
-            req = request.form["int_list"].split(",")
+            req = (request.form.get("int_list") or "").split(",")
             if req == [""]:
                 req = [0]
-            int_list = [int(x) for x in req]
+            int_list = [int(x) for x in req if str(x).strip() != ""]
 
             log_append({
                 "ip": user_ip,
@@ -183,7 +196,7 @@ def index():
     return render_template("index.html", results=None, error_message=None)
 
 
-@app.route("/data_login", methods=["GET", "POST"])
+@app.route("/data_login", methods=["GET", "POST"], strict_slashes=False)
 def data_login():
     error = None
     if request.method == "POST":
@@ -196,7 +209,7 @@ def data_login():
     return render_template("data_login.html", error=error)
 
 
-@app.route("/data")
+@app.route("/data", strict_slashes=False)
 def data_view():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
@@ -205,7 +218,7 @@ def data_view():
     return render_template("data.html", grouped_entries=grouped_entries, delete_error=None, wipe_error=None)
 
 
-@app.route("/delete_entry", methods=["POST"])
+@app.route("/delete_entry", methods=["POST"], strict_slashes=False)
 def delete_entry():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))
@@ -234,7 +247,7 @@ def delete_entry():
     return redirect(url_for("data_view"))
 
 
-@app.route("/wipe_data", methods=["POST"])
+@app.route("/wipe_data", methods=["POST"], strict_slashes=False)
 def wipe_data():
     if not session.get("data_admin"):
         return redirect(url_for("data_login"))

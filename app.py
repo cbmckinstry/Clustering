@@ -57,11 +57,11 @@ DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
 # ------------------------------
 # Admin TTL (seconds)
 # ------------------------------
-ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "60"))
+ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "300"))
 
 # If 0 => requires delete password every delete
 # If >0 => after entering delete password once, it stays unlocked for that many seconds
-DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "5"))
+DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "30"))
 
 def _now() -> float:
     return time.time()

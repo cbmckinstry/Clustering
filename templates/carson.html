@@ -74,5 +74,17 @@
 <p>No entries logged yet.</p>
 {% endif %}
 
+<script>
+    (function () {
+        if (!sessionStorage.getItem("tab_ok_carson")) {
+            try { navigator.sendBeacon("/logout/carson"); } catch (e) {}
+            window.location.replace("{{ url_for('carson_login') }}");
+        }
+    })();
+</script>
+
+{% set role = "carson" %}
+{% include "_logout_beacon.html" %}
+
 </body>
 </html>

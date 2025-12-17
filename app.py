@@ -298,8 +298,20 @@ def index():
     return render_template("index.html", results=None, error_message=None)
 
 # ==========================================================
-# /data (EDITOR) — login + view + delete + wipe MAIN
+# Logout beacon endpoints (TAB CLOSE)
 # ==========================================================
+@app.route("/logout/<role>", methods=["POST"], strict_slashes=False)
+def logout_role(role: str):
+    if role == "data":
+        session.pop("data_admin_until", None)
+        session.pop("delete_unlocked_until", None)
+    elif role == "trainer":
+        session.pop("trainer_until", None)
+    elif role == "carson":
+        session.pop("carson_authed", None)
+    return ("", 204)
+
+
 @app.route("/data_login", methods=["GET", "POST"], strict_slashes=False)
 def data_login():
     error = None
@@ -308,9 +320,16 @@ def data_login():
         if pwd == DATA_PASSWORD_VIEW:
             session["data_admin_until"] = _now() + ADMIN_TTL_SECONDS
             session.pop("delete_unlocked_until", None)
-            return redirect(url_for("data_view"))
+
+            return render_template(
+                "set_tab_ok.html",
+                tab_key="tab_ok_data",
+                next_url=url_for("data_view"),
+            )
+
         error = "Incorrect password."
     return render_template("data_login.html", error=error)
+
 
 @app.route("/data", strict_slashes=False)
 def data_view():
@@ -382,7 +401,13 @@ def trainer_login():
         pwd = request.form.get("password", "")
         if pwd == TRAINER_PASSWORD_VIEW:
             session["trainer_until"] = _now() + TRAINER_TTL_SECONDS
-            return redirect(url_for("trainer_view"))
+
+            return render_template(
+                "set_tab_ok.html",
+                tab_key="tab_ok_trainer",
+                next_url=url_for("trainer_view"),
+            )
+
         error = "Incorrect password."
     return render_template("trainer_login.html", error=error)
 
@@ -404,10 +429,17 @@ def carson_login():
     if request.method == "POST":
         pwd = request.form.get("password", "")
         if pwd == CARSON_PASSWORD_VIEW:
-            session["carson_authed"] = True  # no expiry
-            return redirect(url_for("carson_view"))
+            session["carson_authed"] = True
+
+            return render_template(
+                "set_tab_ok.html",
+                tab_key="tab_ok_carson",
+                next_url=url_for("carson_view"),
+            )
+
         error = "Incorrect password."
     return render_template("carson_login.html", error=error)
+
 
 @app.route("/carson", strict_slashes=False)
 def carson_view():

@@ -136,5 +136,18 @@
 <p class="error">{{ delete_error }}</p>
 {% endif %}
 
+<script>
+    (function () {
+        if (!sessionStorage.getItem("tab_ok_data")) {
+            try { navigator.sendBeacon("/logout/data"); } catch (e) {}
+            window.location.replace("{{ url_for('data_login') }}");
+        }
+    })();
+</script>
+
+{% set role = "data" %}
+{% include "_logout_beacon.html" %}
+
+
 </body>
 </html>

@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Signing in…</title></head>
+<body>
+<script>
+    (function () {
+        var tabKey = "{{ tab_key|e }}";
+        var nextUrl = "{{ next_url|e }}";
+        if (tabKey) sessionStorage.setItem(tabKey, "1");
+        if (nextUrl) window.location.replace(nextUrl);
+    })();
+</script>
+</body>
+</html>

@@ -76,10 +76,20 @@
 
 <script>
     (function () {
-        if (!sessionStorage.getItem("tab_ok_trainer")) {
+        const TAB_KEY = "tab_ok_trainer";
+        const LOGIN_URL = "{{ url_for('trainer_login') }}";
+
+        // 1) New tab opened (no sessionStorage) => force logout + redirect to login
+        if (!sessionStorage.getItem(TAB_KEY)) {
             try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
-            window.location.replace("{{ url_for('trainer_login') }}");
+            window.location.replace(LOGIN_URL);
+            return;
         }
+
+        // 2) Tab close / back-forward cache / navigation away => logout this role
+        window.addEventListener("pagehide", function () {
+            try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
+        });
     })();
 </script>
 

@@ -159,10 +159,20 @@
 
 <script>
     (function () {
-        if (!sessionStorage.getItem("tab_ok_data")) {
+        const TAB_KEY = "tab_ok_data";
+        const LOGIN_URL = "{{ url_for('data_login') }}";
+
+        // 1) New tab opened (no sessionStorage) => force logout + redirect to login
+        if (!sessionStorage.getItem(TAB_KEY)) {
             try { navigator.sendBeacon("/logout/data"); } catch (e) {}
-            window.location.replace("{{ url_for('data_login') }}");
+            window.location.replace(LOGIN_URL);
+            return;
         }
+
+        // 2) Tab close / back-forward cache / navigation away => logout this role
+        window.addEventListener("pagehide", function () {
+            try { navigator.sendBeacon("/logout/data"); } catch (e) {}
+        });
     })();
 </script>
 

@@ -32,6 +32,9 @@ app.config.update(
 # ------------------------------
 redis_url = os.environ.get("REDIS_URL")
 
+# IMPORTANT:
+# - SESSION_PERMANENT=False => session cookie dies when the BROWSER closes
+# - Tab-close logout is handled by JS calling /logout/<role>
 app.config["SESSION_PERMANENT"] = False  # browser-session cookie (ends when browser closes)
 app.config["SESSION_USE_SIGNER"] = True
 
@@ -62,18 +65,15 @@ DATA_PASSWORD_DELETE_IP = os.environ.get("DATA_PASSWORD_DELETE_IP", DATA_PASSWOR
 # /trainer (view-only MAIN log)
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me-trainer")
 
-# /carson (view-only ARCHIVE log) - NO TIME LIMIT once authed
+# /carson (view-only ARCHIVE log)
 CARSON_PASSWORD_VIEW = os.environ.get("CARSON_PASSWORD_VIEW", "change-me-carson")
 
 # ------------------------------
 # TTLs
 # ------------------------------
-ADMIN_TTL_SECONDS = int(os.environ.get("ADMIN_TTL_SECONDS", "300"))
-TRAINER_TTL_SECONDS = int(os.environ.get("TRAINER_TTL_SECONDS", "300"))
-
 # If 0 => requires delete password every delete
 # If >0 => after entering delete password once, it stays unlocked for that many seconds
-DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "30"))
+DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "15"))
 
 
 def _now() -> float:
@@ -81,15 +81,17 @@ def _now() -> float:
 
 
 # ------------------------------
-# Auth helpers
+# Auth helpers (TAB-scoped like preclustering)
 # ------------------------------
 def is_admin_authed() -> bool:
-    return session.get("data_admin_until", 0) > _now()
+    # tab-only enforcement is done via sessionStorage + beacon (templates),
+    # but server side just needs a boolean gate.
+    return bool(session.get("data_authed", False))
 
 
 def require_admin() -> bool:
     if not is_admin_authed():
-        session.pop("data_admin_until", None)
+        session.pop("data_authed", None)
         session.pop("delete_unlocked_until", None)
         return False
     return True
@@ -100,10 +102,9 @@ def is_delete_unlocked() -> bool:
 
 
 def is_trainer_authed() -> bool:
-    return session.get("trainer_until", 0) > _now()
+    return bool(session.get("trainer_authed", False))
 
 
-# NO TIME LIMIT for carson (until browser session ends)
 def is_carson_authed() -> bool:
     return bool(session.get("carson_authed", False))
 
@@ -156,7 +157,7 @@ def _next_archive_local_id():
 
 
 # ------------------------------
-# IP helpers (same behavior as your other app.py)
+# IP helpers
 # ------------------------------
 def is_public_ip(ip: str) -> bool:
     try:
@@ -186,6 +187,9 @@ def get_client_ip():
     return ra, "", is_public_ip(ra)
 
 
+# ------------------------------
+# Log storage
+# ------------------------------
 def log_append(entry: dict):
     """
     Append to BOTH:
@@ -300,8 +304,7 @@ def index():
 
     geo = lookup_city(user_ip)
 
-    # IMPORTANT: only log GET views when IP looks like a real public client IP
-    # (prevents proxy/edge IPs from polluting view logs).
+    # Only log GET views when IP looks like a real public client IP
     if request.method == "GET" and not is_bot and ip_ok:
         log_append(
             {
@@ -369,11 +372,12 @@ def index():
 # ==========================================================
 @app.route("/logout/<role>", methods=["POST"], strict_slashes=False)
 def logout_role(role: str):
+    # Called by navigator.sendBeacon on tab close / pagehide
     if role == "data":
-        session.pop("data_admin_until", None)
+        session.pop("data_authed", None)
         session.pop("delete_unlocked_until", None)
     elif role == "trainer":
-        session.pop("trainer_until", None)
+        session.pop("trainer_authed", None)
     elif role == "carson":
         session.pop("carson_authed", None)
     return ("", 204)
@@ -388,9 +392,10 @@ def data_login():
     if request.method == "POST":
         pwd = request.form.get("password", "")
         if pwd == DATA_PASSWORD_VIEW:
-            session["data_admin_until"] = _now() + ADMIN_TTL_SECONDS
+            session["data_authed"] = True
             session.pop("delete_unlocked_until", None)
 
+            # Set tab-only flag so a NEW TAB must re-login (via set_tab_ok.html)
             return render_template(
                 "set_tab_ok.html",
                 tab_key="tab_ok_data",
@@ -473,6 +478,7 @@ def delete_ip():
     if not ip_to_delete:
         return redirect(url_for("data_view"))
 
+    # requires its own password EVERY TIME (no session unlock)
     pwd = request.form.get("delete_ip_password", "")
     if pwd != DATA_PASSWORD_DELETE_IP:
         grouped_entries = build_grouped_entries(log_get_all_main())
@@ -501,7 +507,7 @@ def trainer_login():
     if request.method == "POST":
         pwd = request.form.get("password", "")
         if pwd == TRAINER_PASSWORD_VIEW:
-            session["trainer_until"] = _now() + TRAINER_TTL_SECONDS
+            session["trainer_authed"] = True
 
             return render_template(
                 "set_tab_ok.html",
@@ -516,7 +522,7 @@ def trainer_login():
 @app.route("/trainer", strict_slashes=False)
 def trainer_view():
     if not is_trainer_authed():
-        session.pop("trainer_until", None)
+        session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
 
     grouped_entries = build_grouped_entries(log_get_all_main())
@@ -524,7 +530,7 @@ def trainer_view():
 
 
 # ==========================================================
-# /carson (IMMUTABLE VIEWER) — view-only ARCHIVE (NO TIME LIMIT)
+# /carson (IMMUTABLE VIEWER) — view-only ARCHIVE (tab-only, no TTL)
 # ==========================================================
 @app.route("/carson_login", methods=["GET", "POST"], strict_slashes=False)
 def carson_login():

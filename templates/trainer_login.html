@@ -4,18 +4,25 @@
     <meta charset="utf-8">
     <title>Trainer Login</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        .error { color: red; margin-bottom: 10px; }
+        body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+        .error { color: red; margin: 10px 0; }
+        form { border: 1px solid #ddd; padding: 16px; border-radius: 6px; }
+        input { padding: 8px; width: 100%; box-sizing: border-box; margin: 8px 0; }
+        button { padding: 10px 14px; }
     </style>
 </head>
 <body>
+
 <h1>Trainer Login</h1>
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
+
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
-<form action="{{ url_for('trainer_login') }}" method="POST">
-    <label>Trainer password:</label>
-    <input type="password" name="password" required>
+
+<form method="POST" action="{{ url_for('trainer_login') }}">
+    <label for="password">Trainer password:</label>
+    <input id="password" type="password" name="password" required autofocus>
     <button type="submit">View</button>
 </form>
+
 </body>
 </html>

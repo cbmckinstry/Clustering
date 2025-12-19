@@ -86,10 +86,6 @@
             return;
         }
 
-        // 2) Tab close / back-forward cache / navigation away => logout this role
-        window.addEventListener("pagehide", function () {
-            try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
-        });
     })();
 </script>
 

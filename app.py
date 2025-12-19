@@ -52,6 +52,7 @@ DATA_PASSWORD = os.environ.get("DATA_PASSWORD", "change-me")
 DATA_PASSWORD_VIEW = os.environ.get("DATA_PASSWORD_VIEW", DATA_PASSWORD)
 DATA_PASSWORD_DELETE = os.environ.get("DATA_PASSWORD_DELETE", DATA_PASSWORD)
 DATA_PASSWORD_WIPE = os.environ.get("DATA_PASSWORD_WIPE", DATA_PASSWORD)
+DATA_PASSWORD_DELETE_IP = os.environ.get("DATA_PASSWORD_DELETE_IP", DATA_PASSWORD)
 
 # /trainer (view-only MAIN log)
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me-trainer")
@@ -390,6 +391,34 @@ def wipe_data():
 
     log_clear_main()  # MAIN cleared; ARCHIVE untouched
     return redirect(url_for("data_view"))
+
+@app.route("/delete_ip", methods=["POST"], strict_slashes=False)
+def delete_ip():
+    if not require_admin():
+        return redirect(url_for("data_login"))
+
+    ip_to_delete = (request.form.get("ip") or "").strip()
+    if not ip_to_delete:
+        return redirect(url_for("data_view"))
+
+    pwd = request.form.get("delete_ip_password", "")
+    if pwd != DATA_PASSWORD_DELETE_IP:
+        grouped_entries = build_grouped_entries(log_get_all_main())
+        return render_template(
+            "data.html",
+            grouped_entries=grouped_entries,
+            delete_unlocked=is_delete_unlocked(),
+            delete_error=None,
+            wipe_error="Incorrect IP delete password.",
+        )
+
+    # Delete ONLY from main log (trainer/data)
+    entries = log_get_all_main()
+    filtered = [e for e in entries if e.get("ip", "Unknown IP") != ip_to_delete]
+    log_replace_all_main(filtered)
+
+    return redirect(url_for("data_view"))
+
 
 # ==========================================================
 # /trainer (VIEWER) — view-only MAIN (changes with /data)

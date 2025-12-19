@@ -46,7 +46,7 @@
 <form action="{{ url_for('wipe_data') }}" method="POST"
       onsubmit="return confirm('Are you sure you want to delete ALL entries? This cannot be undone.');">
     <label for="wipe-password">Wipe password:</label>
-    <input type="password" id="wipe-password" name="wipe_password" required>
+    <input type="password" id="wipe-password" name="wipe_password" required placeholder="Required each time">
     <button type="submit" style="margin-bottom: 15px; padding: 6px 12px;">
         Wipe All Entries
     </button>
@@ -70,6 +70,27 @@
         <span class="ip-meta">(Location unknown)</span>
         {% endif %}
     </h2>
+
+    <form action="{{ url_for('delete_ip') }}" method="POST"
+          style="margin: 8px 0 12px 0;"
+          onsubmit="return confirm('Delete ALL entries for IP {{ ip }}? This cannot be undone.');">
+
+        <input type="hidden" name="ip" value="{{ ip }}">
+
+        <label style="font-size: 0.9em; margin-right: 6px;">
+            IP delete password:
+        </label>
+
+        <input type="password"
+               name="delete_ip_password"
+               required
+               placeholder="Required each time">
+
+        <button type="submit">
+            Delete This IP Section
+        </button>
+    </form>
+
 
     <table>
         <thead>

@@ -9,9 +9,14 @@ from zoneinfo import ZoneInfo
 import requests
 import json
 import time
+import ipaddress
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
+
+# Proxy awareness (Render / reverse proxies). Logging still uses XFF parsing below.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # ------------------------------
 # Security: cookie hardening
@@ -70,14 +75,17 @@ TRAINER_TTL_SECONDS = int(os.environ.get("TRAINER_TTL_SECONDS", "300"))
 # If >0 => after entering delete password once, it stays unlocked for that many seconds
 DELETE_TTL_SECONDS = int(os.environ.get("DELETE_TTL_SECONDS", "30"))
 
+
 def _now() -> float:
     return time.time()
+
 
 # ------------------------------
 # Auth helpers
 # ------------------------------
 def is_admin_authed() -> bool:
     return session.get("data_admin_until", 0) > _now()
+
 
 def require_admin() -> bool:
     if not is_admin_authed():
@@ -86,15 +94,19 @@ def require_admin() -> bool:
         return False
     return True
 
+
 def is_delete_unlocked() -> bool:
     return session.get("delete_unlocked_until", 0) > _now()
+
 
 def is_trainer_authed() -> bool:
     return session.get("trainer_until", 0) > _now()
 
+
 # NO TIME LIMIT for carson (until browser session ends)
 def is_carson_authed() -> bool:
     return bool(session.get("carson_authed", False))
+
 
 # ------------------------------
 # Logging keys (Redis)
@@ -119,6 +131,7 @@ ARCHIVE_LOG = []
 LOG_COUNTER = 0
 ARCHIVE_COUNTER = 0
 
+
 def _get_redis():
     r = app.config.get("SESSION_REDIS")
     if r is None:
@@ -129,15 +142,49 @@ def _get_redis():
     except Exception:
         return None
 
+
 def _next_local_id():
     global LOG_COUNTER
     LOG_COUNTER += 1
     return LOG_COUNTER
 
+
 def _next_archive_local_id():
     global ARCHIVE_COUNTER
     ARCHIVE_COUNTER += 1
     return ARCHIVE_COUNTER
+
+
+# ------------------------------
+# IP helpers (same behavior as your other app.py)
+# ------------------------------
+def is_public_ip(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+        return not (a.is_private or a.is_loopback or a.is_reserved or a.is_multicast or a.is_link_local)
+    except ValueError:
+        return False
+
+
+def get_client_ip():
+    """
+    Returns (client_ip, xff_chain, ip_ok)
+
+    - Prefer first PUBLIC IP in X-Forwarded-For chain.
+    - If none, fall back to remote_addr.
+    - ip_ok indicates whether the returned IP looks like a real public client IP.
+    """
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        for ip in parts:  # leftmost-first
+            if is_public_ip(ip):
+                return ip, xff, True
+        return (parts[0] if parts else (request.remote_addr or "")), xff, False
+
+    ra = request.remote_addr or ""
+    return ra, "", is_public_ip(ra)
+
 
 def log_append(entry: dict):
     """
@@ -165,6 +212,7 @@ def log_append(entry: dict):
         archive_entry["archive_id"] = _next_archive_local_id()
         ARCHIVE_LOG.append(archive_entry)
 
+
 def log_get_all_main():
     r = _get_redis()
     if r is not None:
@@ -172,12 +220,14 @@ def log_get_all_main():
         return [json.loads(x) for x in raw]
     return list(DATA_LOG)
 
+
 def log_get_all_archive():
     r = _get_redis()
     if r is not None:
         raw = r.lrange(ARCHIVE_LOG_KEY, 0, -1)
         return [json.loads(x) for x in raw]
     return list(ARCHIVE_LOG)
+
 
 def log_replace_all_main(entries):
     r = _get_redis()
@@ -191,6 +241,7 @@ def log_replace_all_main(entries):
         global DATA_LOG
         DATA_LOG = list(entries)
 
+
 def log_clear_main():
     """Wipe ONLY MAIN log keys (archive untouched)."""
     r = _get_redis()
@@ -202,6 +253,7 @@ def log_clear_main():
         DATA_LOG.clear()
         LOG_COUNTER = 0
 
+
 def build_grouped_entries(entries):
     entries = list(reversed(entries))
     grouped = {}
@@ -209,6 +261,7 @@ def build_grouped_entries(entries):
         ip = e.get("ip", "Unknown IP")
         grouped.setdefault(ip, []).append(e)
     return grouped
+
 
 def lookup_city(ip: str):
     try:
@@ -229,12 +282,14 @@ def lookup_city(ip: str):
     except Exception:
         return None
 
+
 # ------------------------------
 # Main page
 # ------------------------------
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
-    user_ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+    user_ip, xff_chain, ip_ok = get_client_ip()
+
     user_agent = request.headers.get("User-Agent", "").lower()
     is_bot = (
             "go-http-client/" in user_agent
@@ -245,14 +300,20 @@ def index():
 
     geo = lookup_city(user_ip)
 
-    if request.method == "GET" and not is_bot:
-        log_append({
-            "ip": user_ip,
-            "geo": geo,
-            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-            "event": "view",
-            "input": None,
-        })
+    # IMPORTANT: only log GET views when IP looks like a real public client IP
+    # (prevents proxy/edge IPs from polluting view logs).
+    if request.method == "GET" and not is_bot and ip_ok:
+        log_append(
+            {
+                "ip": user_ip,
+                "xff": xff_chain,
+                "remote_addr": request.remote_addr,
+                "geo": geo,
+                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                "event": "view",
+                "input": None,
+            }
+        )
 
     if request.method == "POST":
         try:
@@ -267,20 +328,24 @@ def index():
                 req = [0]
             int_list = [int(x) for x in req if str(x).strip() != ""]
 
-            log_append({
-                "ip": user_ip,
-                "geo": geo,
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                "event": "submit",
-                "input": {
-                    "int1": int1,
-                    "int2": int2,
-                    "int3": int3,
-                    "int4": int4,
-                    "int5": int5,
-                    "int_list": int_list,
-                },
-            })
+            log_append(
+                {
+                    "ip": user_ip,
+                    "xff": xff_chain,
+                    "remote_addr": request.remote_addr,
+                    "geo": geo,
+                    "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+                    "event": "submit",
+                    "input": {
+                        "int1": int1,
+                        "int2": int2,
+                        "int3": int3,
+                        "int4": int4,
+                        "int5": int5,
+                        "int_list": int_list,
+                    },
+                }
+            )
 
             results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
@@ -298,6 +363,7 @@ def index():
 
     return render_template("index.html", results=None, error_message=None)
 
+
 # ==========================================================
 # Logout beacon endpoints (TAB CLOSE)
 # ==========================================================
@@ -313,6 +379,9 @@ def logout_role(role: str):
     return ("", 204)
 
 
+# ==========================================================
+# /data (EDITOR) — login + view + delete + wipe
+# ==========================================================
 @app.route("/data_login", methods=["GET", "POST"], strict_slashes=False)
 def data_login():
     error = None
@@ -346,6 +415,7 @@ def data_view():
         wipe_error=None,
     )
 
+
 @app.route("/delete_entry", methods=["POST"], strict_slashes=False)
 def delete_entry():
     if not require_admin():
@@ -373,6 +443,7 @@ def delete_entry():
     log_replace_all_main(filtered)
     return redirect(url_for("data_view"))
 
+
 @app.route("/wipe_data", methods=["POST"], strict_slashes=False)
 def wipe_data():
     if not require_admin():
@@ -391,6 +462,7 @@ def wipe_data():
 
     log_clear_main()  # MAIN cleared; ARCHIVE untouched
     return redirect(url_for("data_view"))
+
 
 @app.route("/delete_ip", methods=["POST"], strict_slashes=False)
 def delete_ip():
@@ -440,6 +512,7 @@ def trainer_login():
         error = "Incorrect password."
     return render_template("trainer_login.html", error=error)
 
+
 @app.route("/trainer", strict_slashes=False)
 def trainer_view():
     if not is_trainer_authed():
@@ -448,6 +521,7 @@ def trainer_view():
 
     grouped_entries = build_grouped_entries(log_get_all_main())
     return render_template("trainer.html", grouped_entries=grouped_entries)
+
 
 # ==========================================================
 # /carson (IMMUTABLE VIEWER) — view-only ARCHIVE (NO TIME LIMIT)
@@ -478,6 +552,7 @@ def carson_view():
 
     grouped_entries = build_grouped_entries(log_get_all_archive())
     return render_template("carson.html", grouped_entries=grouped_entries)
+
 
 if __name__ == "__main__":
     app.run()

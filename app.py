@@ -174,9 +174,15 @@ def log_get_all():
     r = _get_redis()
     if r is not None:
         raw = r.lrange(LOG_KEY, 0, -1)
-        return [json.loads(x) for x in raw]
-    return list(DATA_LOG)
+        entries = [json.loads(x) for x in raw]
+    else:
+        entries = list(DATA_LOG)
 
+    # ONLY keep real submit rows (no NULL/view legacy)
+    return [
+        e for e in entries
+        if e.get("event") == "submit" and e.get("input") is not None
+    ]
 
 def build_grouped_entries(entries):
     # Most recent first

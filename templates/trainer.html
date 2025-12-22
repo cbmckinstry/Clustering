@@ -52,20 +52,12 @@
         <tr>
             <td>{{ e.get("timestamp") }}</td>
             <td class="input-box">
-                {% if is_viewer %}
-                NULL
-                {% else %}
-                {% if not inp %}
-                NULL
-                {% else %}
                 <span class="label">Single Sites:</span>{{ inp.get("int1") if inp.get("int1") is not none else "NULL" }}
                 &nbsp;&nbsp;<span class="label">Double Sites:</span>{{ inp.get("int2") if inp.get("int2") is not none else "NULL" }}
                 &nbsp;&nbsp;<span class="label">Triple Sites:</span>{{ inp.get("int3") if inp.get("int3") is not none else "NULL" }}
                 &nbsp;&nbsp;<span class="label">Cars:</span>{{ inp.get("int4") if inp.get("int4") is not none else "NULL" }}
                 &nbsp;&nbsp;<span class="label">Vans:</span>{{ inp.get("int5") if inp.get("int5") is not none else "NULL" }}
                 &nbsp;&nbsp;<span class="label">Bus Capacities:</span>{{ inp.get("int_list") if inp.get("int_list") is not none else "NULL" }}
-                {% endif %}
-                {% endif %}
             </td>
         </tr>
         {% endfor %}

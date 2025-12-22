@@ -117,13 +117,6 @@ def is_public_ip(ip: str) -> bool:
 
 
 def get_client_ip():
-    """
-    Returns (client_ip, xff_chain, ip_ok)
-
-    - Prefer first PUBLIC IP in X-Forwarded-For chain.
-    - If none, fall back to remote_addr.
-    - ip_ok indicates whether the returned IP looks like a real public client IP.
-    """
     xff = request.headers.get("X-Forwarded-For", "")
     if xff:
         parts = [p.strip() for p in xff.split(",") if p.strip()]
@@ -165,17 +158,12 @@ def _format_loc(geo):
 
 
 def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
-    ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S")
     loc = _format_loc(geo)
     print(
-        f"{event.upper()} {ts} | ip={user_ip} | {loc} | inputs={payload} | xff={xff_chain} | ra={remote_addr}",
+        f"{event.upper()} | ip= {user_ip} | {loc} | inputs= {payload} | xff= {xff_chain} | ra= {remote_addr}",
         flush=True
     )
 
-
-# ------------------------------
-# Log storage (SUBMITS only)
-# ------------------------------
 def log_append(entry: dict):
     entry = dict(entry)
 
@@ -242,16 +230,10 @@ def build_grouped_entries(entries):
     return grouped
 
 
-# ------------------------------
-# Auth helpers
-# ------------------------------
 def is_trainer_authed() -> bool:
     return bool(session.get("trainer_authed", False))
 
 
-# ------------------------------
-# Shared request parsing
-# ------------------------------
 def parse_inputs_from_form():
     int1 = int(request.form.get("int1") or 0)
     int2 = int(request.form.get("int2") or 0)
@@ -276,14 +258,9 @@ def is_request_bot(user_agent: str) -> bool:
             or ua.strip() == ""
     )
 
-
-# Purge legacy hidden entries at startup (safe no-op if empty)
 purge_hidden_ips_from_storage()
 
 
-# ------------------------------
-# Main page (REAL) — prints views, logs submits
-# ------------------------------
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip, xff_chain, ip_ok = get_client_ip()
@@ -295,7 +272,7 @@ def index():
     if request.method == "GET":
         if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
             print_event(
-                event="view",
+                event="viewer",
                 user_ip=user_ip,
                 geo=geo,
                 xff_chain=xff_chain,
@@ -356,11 +333,10 @@ def format_inputs_pretty(int1, int2, int3, int4, int5, int_list):
 
 
 def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
-    ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S")
     loc = _format_loc(geo)
 
     # Render-friendly single line, consistent keys
-    msg = f"{event.upper()} {ts} | ip= {user_ip} | loc= {loc} | xff= {xff_chain} | ra= {remote_addr}"
+    msg = f"{event.upper()} | ip= {user_ip} | loc= {loc} | xff= {xff_chain} | ra= {remote_addr}"
     if payload is not None:
         msg += f" | {payload}"
 
@@ -397,7 +373,7 @@ def test_page():
 
         if not is_hidden_ip(user_ip):
             print_event(
-                event="submit-test",
+                event="user-test",
                 user_ip=user_ip,
                 geo=geo,
                 xff_chain=xff_chain,

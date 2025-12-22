@@ -24,11 +24,15 @@
 {% for ip, group in grouped_entries.items() %}
 <div class="ip-block">
 
-    {% set g = group[0].geo if group[0].geo is defined else None %}
+    {% set g = group[0].get("geo") %}
     <h2 class="ip-heading">
         {{ ip }}
         {% if g %}
-        <span class="ip-meta">({{ g.city or 'Unknown city' }}, {{ g.region or 'Unknown region' }}, {{ g.country or 'Unknown country' }})</span>
+        <span class="ip-meta">
+            ({{ g.get("city") or "Unknown city" }},
+             {{ g.get("region") or "Unknown region" }},
+             {{ g.get("country") or "Unknown country" }})
+        </span>
         {% else %}
         <span class="ip-meta">(Location unknown)</span>
         {% endif %}
@@ -43,10 +47,10 @@
         </thead>
         <tbody>
         {% for e in group %}
-        {% set inp = e.input if e.input is defined else None %}
-        {% set is_viewer = (e.event is defined and e.event == "view") %}
+        {% set inp = e.get("input") %}
+        {% set is_viewer = (e.get("event") == "view") %}
         <tr>
-            <td>{{ e.timestamp }}</td>
+            <td>{{ e.get("timestamp") }}</td>
             <td class="input-box">
                 {% if is_viewer %}
                 NULL
@@ -54,12 +58,12 @@
                 {% if not inp %}
                 NULL
                 {% else %}
-                <span class="label">Single Sites:</span>{{ inp.int1 if inp.int1 is not none else "NULL" }}
-                &nbsp;&nbsp;<span class="label">Double Sites:</span>{{ inp.int2 if inp.int2 is not none else "NULL" }}
-                &nbsp;&nbsp;<span class="label">Triple Sites:</span>{{ inp.int3 if inp.int3 is not none else "NULL" }}
-                &nbsp;&nbsp;<span class="label">Cars:</span>{{ inp.int4 if inp.int4 is not none else "NULL" }}
-                &nbsp;&nbsp;<span class="label">Vans:</span>{{ inp.int5 if inp.int5 is not none else "NULL" }}
-                &nbsp;&nbsp;<span class="label">Bus Capacities:</span>{{ inp.int_list if inp.int_list is not none else "NULL" }}
+                <span class="label">Single Sites:</span>{{ inp.get("int1") if inp.get("int1") is not none else "NULL" }}
+                &nbsp;&nbsp;<span class="label">Double Sites:</span>{{ inp.get("int2") if inp.get("int2") is not none else "NULL" }}
+                &nbsp;&nbsp;<span class="label">Triple Sites:</span>{{ inp.get("int3") if inp.get("int3") is not none else "NULL" }}
+                &nbsp;&nbsp;<span class="label">Cars:</span>{{ inp.get("int4") if inp.get("int4") is not none else "NULL" }}
+                &nbsp;&nbsp;<span class="label">Vans:</span>{{ inp.get("int5") if inp.get("int5") is not none else "NULL" }}
+                &nbsp;&nbsp;<span class="label">Bus Capacities:</span>{{ inp.get("int_list") if inp.get("int_list") is not none else "NULL" }}
                 {% endif %}
                 {% endif %}
             </td>
@@ -79,15 +83,18 @@
         const TAB_KEY = "tab_ok_trainer";
         const LOGIN_URL = "{{ url_for('trainer_login') }}";
 
-        // 1) New tab opened (no sessionStorage) => force logout + redirect to login
+        // New tab (or cleared sessionStorage) => require login for THIS tab.
+        // Do NOT log out server-side here; just redirect.
         if (!sessionStorage.getItem(TAB_KEY)) {
-            try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
             window.location.replace(LOGIN_URL);
             return;
         }
-
+        window.addEventListener("pagehide", function () {
+            try { navigator.sendBeacon("/logout/trainer", ""); } catch (e) {}
+        });
     })();
 </script>
+
 
 </body>
 </html>

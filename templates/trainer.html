@@ -89,9 +89,6 @@
             window.location.replace(LOGIN_URL);
             return;
         }
-        window.addEventListener("pagehide", function () {
-            try { navigator.sendBeacon("/logout/trainer", ""); } catch (e) {}
-        });
     })();
 </script>
 

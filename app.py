@@ -14,28 +14,20 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
-# Proxy awareness (Render / reverse proxies). Logging still uses XFF parsing below.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-# ------------------------------
-# Security: cookie hardening
-# ------------------------------
+
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=True,  # Render is HTTPS
+    SESSION_COOKIE_SECURE=True,
 )
 
-# ------------------------------
-# Sessions (Redis if available)
-# ------------------------------
 redis_url = os.environ.get("REDIS_URL")
 
-# Browser-session cookie (ends when browser closes)
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
 
-# IMPORTANT: isolate session keys between apps sharing Redis
 app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session:clustering:")
 
 if redis_url:
@@ -49,32 +41,19 @@ else:
 
 Session(app)
 
-# ------------------------------
-# Trainer password (view-only)
-# ------------------------------
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me")
 MAX_LOG_ENTRIES = int(os.environ.get("MAX_LOG_ENTRIES", "20000"))
 
-# ------------------------------
-# Hidden IPs (do not log / do not show in trainer)
-# Set in Render env as comma-separated:
-#   HIDDEN_IPS=1.2.3.4,5.6.7.8
-# ------------------------------
 HIDDEN_IPS_RAW = os.environ.get("HIDDEN_IPS", "").strip()
 HIDDEN_IPS = {x.strip() for x in HIDDEN_IPS_RAW.split(",") if x.strip()}
 
-# ------------------------------
-# Logging keys (Redis)
-# ------------------------------
 DATA_KEY_PREFIX = (os.environ.get("DATA_KEY_PREFIX", "clustering:trainer_log_v1").strip()
                    or "clustering:trainer_log_v1")
 LOG_KEY = DATA_KEY_PREFIX
 ID_KEY = f"{DATA_KEY_PREFIX}:id_counter"
 
-# Local fallback storage (dev)
 DATA_LOG = []
 LOG_COUNTER = 0
-
 
 def _get_redis():
     r = app.config.get("SESSION_REDIS")
@@ -92,13 +71,8 @@ def _next_local_id():
     LOG_COUNTER += 1
     return LOG_COUNTER
 
-
-# ------------------------------
-# Hidden IP helpers
-# ------------------------------
 def is_hidden_ip(ip: str) -> bool:
     return ip in HIDDEN_IPS
-
 
 def filter_out_hidden_entries(entries):
     if not HIDDEN_IPS:
@@ -106,9 +80,6 @@ def filter_out_hidden_entries(entries):
     return [e for e in entries if e.get("ip") not in HIDDEN_IPS]
 
 
-# ------------------------------
-# IP helpers
-# ------------------------------
 def is_public_ip(ip: str) -> bool:
     try:
         a = ipaddress.ip_address(ip)
@@ -194,7 +165,6 @@ def log_get_all_raw():
 
 
 def log_get_all():
-    # Hide IPs from display, too
     return filter_out_hidden_entries(log_get_all_raw())
 
 
@@ -212,7 +182,6 @@ def log_replace_all(entries):
 
 
 def purge_hidden_ips_from_storage():
-    """Remove already-stored entries for hidden IPs."""
     if not HIDDEN_IPS:
         return
     entries = log_get_all_raw()
@@ -223,7 +192,6 @@ def purge_hidden_ips_from_storage():
 
 
 def build_grouped_entries(entries):
-    # Most recent first
     entries = list(reversed(entries))
     grouped = {}
     for e in entries:
@@ -270,7 +238,6 @@ def index():
 
     geo = lookup_city(user_ip)
 
-    # GET: print viewer info only (no stored log)
     if request.method == "GET":
         if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
             print_event(
@@ -283,7 +250,6 @@ def index():
             )
         return render_template("index.html", results=None, error_message=None)
 
-    # POST: log submit to stored log + show results
     try:
         int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
@@ -321,9 +287,7 @@ def index():
         return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
 
 
-
 def format_inputs_pretty(int1, int2, int3, int4, int5, int_list):
-    # Nice, stable order; easy to scan in Render logs
     return (
         f"Single Sites={int1} | "
         f"Double Sites={int2} | "
@@ -337,16 +301,13 @@ def format_inputs_pretty(int1, int2, int3, int4, int5, int_list):
 def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
     loc = _format_loc(geo)
 
-    # Render-friendly single line, consistent keys
     msg = f"{event.upper()} | ip= {user_ip} | loc= {loc} | xff= {xff_chain} | ra= {remote_addr}"
     if payload is not None:
         msg += f" | {payload}"
 
     print(msg, flush=True)
 
-# ------------------------------
-# Test page — prints views + prints submits, logs nothing
-# ------------------------------
+
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
     user_ip, xff_chain, ip_ok = get_client_ip()
@@ -354,7 +315,6 @@ def test_page():
 
     geo = lookup_city(user_ip)
 
-    # GET: print viewer info only
     if request.method == "GET":
         if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
             print_event(
@@ -367,7 +327,6 @@ def test_page():
             )
         return render_template("index.html", results=None, error_message=None)
 
-    # POST: print submit payload only (no stored log)
     try:
         int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
@@ -390,9 +349,6 @@ def test_page():
         return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
 
 
-# ------------------------------
-# /trainer (VIEW-ONLY)
-# ------------------------------
 @app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
 def trainer_login():
     error = None

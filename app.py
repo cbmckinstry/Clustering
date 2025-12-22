@@ -398,6 +398,5 @@ def trainer_view():
     grouped_entries = build_grouped_entries(log_get_all())
     return render_template("trainer.html", grouped_entries=grouped_entries)
 
-
 if __name__ == "__main__":
     app.run()

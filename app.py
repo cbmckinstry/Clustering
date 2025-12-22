@@ -121,19 +121,19 @@ def lookup_city(ip: str):
         if ip.startswith("127.") or ip == "::1":
             return {"city": "Localhost", "region": None, "country": None}
 
-        resp = requests.get(f"http://ip-api.com/json/{ip}", timeout=2)
+        resp = requests.get(
+            f"https://api.db-ip.com/v2/free/{ip}",
+            timeout=2,
+        )
         data = resp.json()
-        if data.get("status") != "success":
-            return None
 
         return {
             "city": data.get("city"),
-            "region": data.get("regionName"),
-            "country": data.get("country"),
+            "region": data.get("stateProv"),
+            "country": data.get("countryName"),
         }
     except Exception:
         return None
-
 
 def _format_loc(geo):
     if not geo:

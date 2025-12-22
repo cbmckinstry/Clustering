@@ -8,7 +8,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
 import json
-import time
 import ipaddress
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -56,6 +55,14 @@ Session(app)
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me")
 
 # ------------------------------
+# Hidden IPs (do not log / do not show in trainer)
+# Set in Render env as comma-separated:
+#   HIDDEN_IPS=1.2.3.4,5.6.7.8
+# ------------------------------
+HIDDEN_IPS_RAW = os.environ.get("HIDDEN_IPS", "").strip()
+HIDDEN_IPS = {x.strip() for x in HIDDEN_IPS_RAW.split(",") if x.strip()}
+
+# ------------------------------
 # Logging keys (Redis)
 # ------------------------------
 DATA_KEY_PREFIX = (os.environ.get("DATA_KEY_PREFIX", "clustering:trainer_log_v1").strip()
@@ -83,6 +90,19 @@ def _next_local_id():
     global LOG_COUNTER
     LOG_COUNTER += 1
     return LOG_COUNTER
+
+
+# ------------------------------
+# Hidden IP helpers
+# ------------------------------
+def is_hidden_ip(ip: str) -> bool:
+    return ip in HIDDEN_IPS
+
+
+def filter_out_hidden_entries(entries):
+    if not HIDDEN_IPS:
+        return list(entries)
+    return [e for e in entries if e.get("ip") not in HIDDEN_IPS]
 
 
 # ------------------------------
@@ -121,19 +141,19 @@ def lookup_city(ip: str):
         if ip.startswith("127.") or ip == "::1":
             return {"city": "Localhost", "region": None, "country": None}
 
-        resp = requests.get(
-            f"https://api.db-ip.com/v2/free/{ip}",
-            timeout=2,
-        )
+        resp = requests.get(f"http://ip-api.com/json/{ip}", timeout=2)
         data = resp.json()
+        if data.get("status") != "success":
+            return None
 
         return {
             "city": data.get("city"),
-            "region": data.get("stateProv"),
-            "country": data.get("countryName"),
+            "region": data.get("regionName"),
+            "country": data.get("country"),
         }
     except Exception:
         return None
+
 
 def _format_loc(geo):
     if not geo:
@@ -148,7 +168,7 @@ def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str,
     ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S")
     loc = _format_loc(geo)
     print(
-        f"{event.upper()} {ts} | ip = {user_ip} | {loc} | inputs = {payload} | xff = {xff_chain} | ra = {remote_addr}",
+        f"{event.upper()} {ts} | ip={user_ip} | {loc} | inputs={payload} | xff={xff_chain} | ra={remote_addr}",
         flush=True
     )
 
@@ -157,8 +177,13 @@ def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str,
 # Log storage (SUBMITS only)
 # ------------------------------
 def log_append(entry: dict):
-    r = _get_redis()
     entry = dict(entry)
+
+    # Skip hidden IPs entirely
+    if is_hidden_ip(entry.get("ip", "")):
+        return
+
+    r = _get_redis()
 
     if r is not None:
         if "id" not in entry:
@@ -170,19 +195,42 @@ def log_append(entry: dict):
         DATA_LOG.append(entry)
 
 
-def log_get_all():
+def log_get_all_raw():
     r = _get_redis()
     if r is not None:
         raw = r.lrange(LOG_KEY, 0, -1)
-        entries = [json.loads(x) for x in raw]
-    else:
-        entries = list(DATA_LOG)
+        return [json.loads(x) for x in raw]
+    return list(DATA_LOG)
 
-    # ONLY keep real submit rows (no NULL/view legacy)
-    return [
-        e for e in entries
-        if e.get("event") == "submit" and e.get("input") is not None
-    ]
+
+def log_get_all():
+    # Hide IPs from display, too
+    return filter_out_hidden_entries(log_get_all_raw())
+
+
+def log_replace_all(entries):
+    r = _get_redis()
+    if r is not None:
+        pipe = r.pipeline()
+        pipe.delete(LOG_KEY)
+        for e in entries:
+            pipe.rpush(LOG_KEY, json.dumps(e))
+        pipe.execute()
+    else:
+        global DATA_LOG
+        DATA_LOG = list(entries)
+
+
+def purge_hidden_ips_from_storage():
+    """Remove already-stored entries for hidden IPs."""
+    if not HIDDEN_IPS:
+        return
+    entries = log_get_all_raw()
+    filtered = filter_out_hidden_entries(entries)
+    if len(filtered) != len(entries):
+        log_replace_all(filtered)
+        print(f"PURGE-HIDDEN removed={len(entries) - len(filtered)}", flush=True)
+
 
 def build_grouped_entries(entries):
     # Most recent first
@@ -211,22 +259,13 @@ def parse_inputs_from_form():
     int4 = int(request.form.get("int4") or 0)
     int5 = int(request.form.get("int5") or 0)
 
-    req = (request.form.get("int_list") or "").split(",")
-    if req == [""]:
-        req = [0]
-    int_list = [int(x) for x in req if str(x).strip() != ""]
+    raw = (request.form.get("int_list") or "").split(",")
+    if raw == [""]:
+        raw = [0]
+    int_list = [int(x) for x in raw if str(x).strip() != ""]
 
     return int1, int2, int3, int4, int5, int_list
 
-def describe_inputs(int1, int2, int3, int4, int5, int_list):
-    return {
-        "single_sites": int1,
-        "double_sites": int2,
-        "triple_sites": int3,
-        "cars": int4,
-        "vans": int5,
-        "bus_capacities": int_list,
-    }
 
 def is_request_bot(user_agent: str) -> bool:
     ua = (user_agent or "").lower()
@@ -236,6 +275,10 @@ def is_request_bot(user_agent: str) -> bool:
             or "uptimerobot.com" in ua
             or ua.strip() == ""
     )
+
+
+# Purge legacy hidden entries at startup (safe no-op if empty)
+purge_hidden_ips_from_storage()
 
 
 # ------------------------------
@@ -249,56 +292,79 @@ def index():
     geo = lookup_city(user_ip)
 
     # GET: print viewer info only (no stored log)
-    if request.method == "GET" and (not is_bot) and ip_ok:
-        print_event(
-            event="view",
-            user_ip=user_ip,
-            geo=geo,
-            xff_chain=xff_chain,
-            remote_addr=request.remote_addr,
-            payload=None,
-        )
+    if request.method == "GET":
+        if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
+            print_event(
+                event="view",
+                user_ip=user_ip,
+                geo=geo,
+                xff_chain=xff_chain,
+                remote_addr=request.remote_addr,
+                payload=None,
+            )
         return render_template("index.html", results=None, error_message=None)
 
     # POST: log submit to stored log + show results
-    if request.method == "POST":
-        try:
-            int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
+    try:
+        int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
-            log_entry = {
-                "ip": user_ip,
-                "xff": xff_chain,
-                "remote_addr": request.remote_addr,
-                "geo": geo,
-                "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-                "event": "submit",
-                "input": {
-                    "int1": int1,
-                    "int2": int2,
-                    "int3": int3,
-                    "int4": int4,
-                    "int5": int5,
-                    "int_list": int_list,
-                },
-            }
-            log_append(log_entry)
 
-            results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
+        log_entry = {
+            "ip": user_ip,
+            "xff": xff_chain,
+            "remote_addr": request.remote_addr,
+            "geo": geo,
+            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
+            "event": "submit",
+            "input": {
+                "int1": int1,
+                "int2": int2,
+                "int3": int3,
+                "int4": int4,
+                "int5": int5,
+                "int_list": int_list,
+            },
+        }
+        log_append(log_entry)
 
-            session["int1"] = int1
-            session["int2"] = int2
-            session["int3"] = int3
-            session["int4"] = int4
-            session["int5"] = int5
-            session["int_list"] = int_list
+        results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
 
-            return render_template("index.html", results=results, error_message=None)
+        session["int1"] = int1
+        session["int2"] = int2
+        session["int3"] = int3
+        session["int4"] = int4
+        session["int5"] = int5
+        session["int_list"] = int_list
 
-        except Exception as e:
-            return render_template("index.html", error_message=f"An error occurred: {str(e)}", results=None)
+        return render_template("index.html", results=results, error_message=None)
 
-    return render_template("index.html", results=None, error_message=None)
+    except Exception as e:
+        return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
 
+
+
+def format_inputs_pretty(int1, int2, int3, int4, int5, int_list):
+    # Nice, stable order; easy to scan in Render logs
+    return (
+        f"Single Sites={int1} | "
+        f"Double Sites={int2} | "
+        f"Triple Sites={int3} | "
+        f"Cars={int4} | "
+        f"Vans={int5} | "
+        f"Bus Capacities={int_list}"
+    )
+
+
+def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
+    ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S")
+    loc = _format_loc(geo)
+
+    # Render-friendly single line, consistent keys
+    msg = f"{event.upper()} {ts} | ip= {user_ip} | loc= {loc} | xff= {xff_chain} | ra= {remote_addr}"
+    if payload is not None:
+        msg += f" | {payload}"
+
+    print(msg, flush=True)
 
 # ------------------------------
 # Test page — prints views + prints submits, logs nothing
@@ -306,16 +372,13 @@ def index():
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
     user_ip, xff_chain, ip_ok = get_client_ip()
-    user_agent = request.headers.get("User-Agent", "")
-    is_bot = is_request_bot(user_agent)
+    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
 
     geo = lookup_city(user_ip)
 
-    # ------------------------------
     # GET: print viewer info only
-    # ------------------------------
     if request.method == "GET":
-        if (not is_bot) and ip_ok:
+        if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
             print_event(
                 event="view-test",
                 user_ip=user_ip,
@@ -326,49 +389,28 @@ def test_page():
             )
         return render_template("index.html", results=None, error_message=None)
 
-    # ------------------------------
-    # POST: print inputs only
-    # ------------------------------
+    # POST: print submit payload only (no stored log)
     try:
-        int1 = int(request.form.get("int1") or 0)
-        int2 = int(request.form.get("int2") or 0)
-        int3 = int(request.form.get("int3") or 0)
-        int4 = int(request.form.get("int4") or 0)
-        int5 = int(request.form.get("int5") or 0)
+        int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
-        raw = (request.form.get("int_list") or "").split(",")
-        if raw == [""]:
-            raw = [0]
-        int_list = [int(x) for x in raw if str(x).strip() != ""]
+        pretty = format_inputs_pretty(int1, int2, int3, int4, int5, int_list)
 
-        summary = (
-                "singlesites = " + str(int1) + ", "
-                "doublesites = " + str(int2) + ", "
-                "triplesites = " + str(int3) + ", "
-                "cars = " + str(int4) + ", "
-                "vans = " + str(int5) + ", "
-                "buses = " + str(int_list)
-        )
-
-        print_event(
-            event="submit-test",
-            user_ip=user_ip,
-            geo=geo,
-            xff_chain=xff_chain,
-            remote_addr=request.remote_addr,
-            payload=summary,
-        )
+        if not is_hidden_ip(user_ip):
+            print_event(
+                event="submit-test",
+                user_ip=user_ip,
+                geo=geo,
+                xff_chain=xff_chain,
+                remote_addr=request.remote_addr,
+                payload=pretty,
+            )
 
         results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
-
         return render_template("index.html", results=results, error_message=None)
 
     except Exception as e:
-        return render_template(
-            "index.html",
-            results=None,
-            error_message="An error occurred: " + str(e),
-        )
+        return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
+
 
 # ------------------------------
 # /trainer (VIEW-ONLY)
@@ -397,6 +439,7 @@ def trainer_view():
 
     grouped_entries = build_grouped_entries(log_get_all())
     return render_template("trainer.html", grouped_entries=grouped_entries)
+
 
 if __name__ == "__main__":
     app.run()

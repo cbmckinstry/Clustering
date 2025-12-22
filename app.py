@@ -135,8 +135,26 @@ def lookup_city(ip: str):
         return None
 
 
+def _format_loc(geo):
+    if not geo:
+        return "Location unknown"
+    city = geo.get("city") or "Unknown city"
+    region = geo.get("region") or "Unknown region"
+    country = geo.get("country") or "Unknown country"
+    return f"{city}, {region}, {country}"
+
+
+def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
+    ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S")
+    loc = _format_loc(geo)
+    print(
+        f"{event.upper()} {ts} | ip = {user_ip} | {loc} | inputs = {payload} | xff = {xff_chain} | ra = {remote_addr}",
+        flush=True
+    )
+
+
 # ------------------------------
-# Log storage
+# Log storage (SUBMITS only)
 # ------------------------------
 def log_append(entry: dict):
     r = _get_redis()
@@ -178,47 +196,68 @@ def is_trainer_authed() -> bool:
 
 
 # ------------------------------
-# Main page (your clustering UI)
+# Shared request parsing
+# ------------------------------
+def parse_inputs_from_form():
+    int1 = int(request.form.get("int1") or 0)
+    int2 = int(request.form.get("int2") or 0)
+    int3 = int(request.form.get("int3") or 0)
+    int4 = int(request.form.get("int4") or 0)
+    int5 = int(request.form.get("int5") or 0)
+
+    req = (request.form.get("int_list") or "").split(",")
+    if req == [""]:
+        req = [0]
+    int_list = [int(x) for x in req if str(x).strip() != ""]
+
+    return int1, int2, int3, int4, int5, int_list
+
+def describe_inputs(int1, int2, int3, int4, int5, int_list):
+    return {
+        "single_sites": int1,
+        "double_sites": int2,
+        "triple_sites": int3,
+        "cars": int4,
+        "vans": int5,
+        "bus_capacities": int_list,
+    }
+
+def is_request_bot(user_agent: str) -> bool:
+    ua = (user_agent or "").lower()
+    return (
+            "go-http-client/" in ua
+            or "cron-job.org" in ua
+            or "uptimerobot.com" in ua
+            or ua.strip() == ""
+    )
+
+
+# ------------------------------
+# Main page (REAL) — prints views, logs submits
 # ------------------------------
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip, xff_chain, ip_ok = get_client_ip()
-
-    user_agent = request.headers.get("User-Agent", "").lower()
-    is_bot = (
-            "go-http-client/" in user_agent
-            or "cron-job.org" in user_agent
-            or "uptimerobot.com" in user_agent
-            or user_agent.strip() == ""
-    )
+    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
 
     geo = lookup_city(user_ip)
 
-    # Only log GET views when IP looks like a real public client IP
+    # GET: print viewer info only (no stored log)
     if request.method == "GET" and (not is_bot) and ip_ok:
-        entry = {
-            "ip": user_ip,
-            "xff": xff_chain,
-            "remote_addr": request.remote_addr,
-            "geo": geo,
-            "timestamp": datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S"),
-            "event": "view",
-            "input": None,
-        }
-        log_append(entry)
+        print_event(
+            event="view",
+            user_ip=user_ip,
+            geo=geo,
+            xff_chain=xff_chain,
+            remote_addr=request.remote_addr,
+            payload=None,
+        )
+        return render_template("index.html", results=None, error_message=None)
 
+    # POST: log submit to stored log + show results
     if request.method == "POST":
         try:
-            int1 = int(request.form.get("int1") or 0)
-            int2 = int(request.form.get("int2") or 0)
-            int3 = int(request.form.get("int3") or 0)
-            int4 = int(request.form.get("int4") or 0)
-            int5 = int(request.form.get("int5") or 0)
-
-            req = (request.form.get("int_list") or "").split(",")
-            if req == [""]:
-                req = [0]
-            int_list = [int(x) for x in req if str(x).strip() != ""]
+            int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
             log_entry = {
                 "ip": user_ip,
@@ -256,13 +295,74 @@ def index():
 
 
 # ------------------------------
-# Logout beacon endpoint (TAB CLOSE)
+# Test page — prints views + prints submits, logs nothing
 # ------------------------------
-@app.route("/logout/trainer", methods=["POST"], strict_slashes=False)
-def logout_trainer():
-    session.pop("trainer_authed", None)
-    return ("", 204)
+@app.route("/test", methods=["GET", "POST"], strict_slashes=False)
+def test_page():
+    user_ip, xff_chain, ip_ok = get_client_ip()
+    user_agent = request.headers.get("User-Agent", "")
+    is_bot = is_request_bot(user_agent)
 
+    geo = lookup_city(user_ip)
+
+    # ------------------------------
+    # GET: print viewer info only
+    # ------------------------------
+    if request.method == "GET":
+        if (not is_bot) and ip_ok:
+            print_event(
+                event="view-test",
+                user_ip=user_ip,
+                geo=geo,
+                xff_chain=xff_chain,
+                remote_addr=request.remote_addr,
+                payload=None,
+            )
+        return render_template("index.html", results=None, error_message=None)
+
+    # ------------------------------
+    # POST: print inputs only
+    # ------------------------------
+    try:
+        int1 = int(request.form.get("int1") or 0)
+        int2 = int(request.form.get("int2") or 0)
+        int3 = int(request.form.get("int3") or 0)
+        int4 = int(request.form.get("int4") or 0)
+        int5 = int(request.form.get("int5") or 0)
+
+        raw = (request.form.get("int_list") or "").split(",")
+        if raw == [""]:
+            raw = [0]
+        int_list = [int(x) for x in raw if str(x).strip() != ""]
+
+        summary = (
+                "singlesites = " + str(int1) + ", "
+                "doublesites = " + str(int2) + ", "
+                "triplesites = " + str(int3) + ", "
+                "cars = " + str(int4) + ", "
+                "vans = " + str(int5) + ", "
+                "buses = " + str(int_list)
+        )
+
+        print_event(
+            event="submit-test",
+            user_ip=user_ip,
+            geo=geo,
+            xff_chain=xff_chain,
+            remote_addr=request.remote_addr,
+            payload=summary,
+        )
+
+        results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
+
+        return render_template("index.html", results=results, error_message=None)
+
+    except Exception as e:
+        return render_template(
+            "index.html",
+            results=None,
+            error_message="An error occurred: " + str(e),
+        )
 
 # ------------------------------
 # /trainer (VIEW-ONLY)

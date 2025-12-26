@@ -255,7 +255,7 @@ def parse_inputs_from_form():
 
     raw = (request.form.get("int_list") or "").split(",")
     if raw == [""]:
-        raw = [0]
+        raw = []
     int_list = [int(x) for x in raw if str(x).strip() != ""]
 
     return int1, int2, int3, int4, int5, int_list

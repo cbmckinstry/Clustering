@@ -91,6 +91,22 @@
     })();
 </script>
 
+<script>
+    (function () {
+        // tab-only id (dies when tab closes)
+        let tabId = sessionStorage.getItem("tab_id");
+        if (!tabId) {
+            tabId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + "-" + Math.random());
+            sessionStorage.setItem("tab_id", tabId);
+        }
+
+        fetch("/view_once", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ tab_id: tabId })
+        }).catch(() => {});
+    })();
+</script>
 
 </body>
 </html>

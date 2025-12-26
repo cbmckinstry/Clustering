@@ -117,22 +117,22 @@
         {% endif %}
         <form method="POST">
             <label for="int1">Single Sites:</label>
-            <input type="number" id="int1" name="int1" value="{{ request.form['int1'] if request.form['int1'] else '' }}" ><br>
+            <input type="number" id="int1" name="int1" value="{{ int1 }}"><br>
 
             <label for="int2">Double Sites:</label>
-            <input type="number" id="int2" name="int2" value="{{ request.form['int2'] if request.form['int2'] else '' }}" ><br>
+            <input type="number" id="int2" name="int2" value="{{ int2 }}"><br>
 
             <label for="int3">Triple Sites:</label>
-            <input type="number" id="int3" name="int3" value="{{ request.form['int3'] if request.form['int3'] else '' }}" ><br>
+            <input type="number" id="int3" name="int3" value="{{ int3 }}"><br>
 
             <label for="int4">Car Clusters:</label>
-            <input type="number" id="int4" name="int4" value="{{ request.form['int4'] if request.form['int4'] else '' }}" ><br>
+            <input type="number" id="int4" name="int4" value="{{ int4 }}"><br>
 
             <label for="int5">Van Clusters:</label>
-            <input type="number" id="int5" name="int5" value="{{ request.form['int5'] if request.form['int5'] else '' }}" ><br>
+            <input type="number" id="int5" name="int5" value="{{ int5 }}"><br>
 
             <label for="int_list">Bus Capacities (comma-separated, in crews):</label>
-            <input type="text" id="int_list" name="int_list" value="{{ request.form['int_list'] if request.form['int_list'] else '' }}" ><br>
+            <input type="text" id="int_list" name="int_list" value="{{ int_list }}"><br>
 
             <input type="submit" value="Submit">
         </form>
@@ -212,5 +212,23 @@
     </div>
 
 </div>
+
+<script>
+    (function () {
+        // tab-only id (dies when tab closes)
+        let tabId = sessionStorage.getItem("tab_id");
+        if (!tabId) {
+            tabId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + "-" + Math.random());
+            sessionStorage.setItem("tab_id", tabId);
+        }
+
+        fetch("/view_once", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ tab_id: tabId })
+        }).catch(() => {});
+    })();
+</script>
+
 </body>
 </html>

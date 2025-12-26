@@ -18,11 +18,13 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+IS_RENDER = bool(os.environ.get("RENDER")) or bool(os.environ.get("RENDER_SERVICE_ID"))
+COOKIE_SECURE = True if IS_RENDER else False
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SECURE=COOKIE_SECURE,
 )
 
 redis_url = os.environ.get("REDIS_URL")
@@ -270,6 +272,20 @@ def is_request_bot(user_agent: str) -> bool:
 
 purge_hidden_ips_from_storage()
 
+def _render_index(results=None, error_message=None):
+    return render_template(
+        "index.html",
+        results=results,
+        error_message=error_message,
+        int1=session.get("int1", ""),
+        int2=session.get("int2", ""),
+        int3=session.get("int3", ""),
+        int4=session.get("int4", ""),
+        int5=session.get("int5", ""),
+        int_list=",".join(map(str, session.get("int_list", []))) if isinstance(session.get("int_list", []), list) else (session.get("int_list") or ""),
+    )
+
+
 
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
@@ -279,17 +295,9 @@ def index():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
-        local_ok = (user_ip.startswith("127.") or user_ip == "::1")
-        if (not is_bot) and (ip_ok or local_ok):
-            print_event(
-                event="view",
-                user_ip=user_ip,
-                geo=geo,
-                xff_chain=xff_chain,
-                remote_addr=request.remote_addr,
-                payload_lines=None,
-            )
-        return render_template("index.html", results=None, error_message=None)
+
+        return _render_index(results=None, error_message=None)
+
 
     try:
         int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
@@ -322,10 +330,10 @@ def index():
         session["int5"] = int5
         session["int_list"] = int_list
 
-        return render_template("index.html", results=results, error_message=None)
+        return _render_index(results=results, error_message=None)
 
     except Exception as e:
-        return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
+        return _render_index(results=None, error_message="An error occurred: " + str(e))
 
 
 
@@ -337,36 +345,33 @@ def test_page():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
-        local_ok = (user_ip.startswith("127.") or user_ip == "::1")
-        if (not is_bot) and (ip_ok or local_ok) and (not is_hidden_ip(user_ip)):
-            print_event(
-                event="view-test",
-                user_ip=user_ip,
-                geo=geo,
-                xff_chain="",
-                remote_addr=request.remote_addr,
-                payload_lines=None,
-            )
-        return render_template("index.html", results=None, error_message=None)
+        return _render_index(results=None, error_message=None)
 
-    # POST stays as your SUBMIT-TEST (with payload_lines)
     try:
         int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
+
+        session["int1"] = int1
+        session["int2"] = int2
+        session["int3"] = int3
+        session["int4"] = int4
+        session["int5"] = int5
+        session["int_list"] = int_list
+
 
         print_event(
             event="submit-test",
             user_ip=user_ip,
             geo=geo,
-            xff_chain=xff_chain,  # keep XFF on submit if you want
+            xff_chain=xff_chain,
             remote_addr=request.remote_addr,
             payload_lines=build_payload_lines(int1, int2, int3, int4, int5, int_list),
         )
 
         results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
-        return render_template("index.html", results=results, error_message=None)
+        return _render_index(results=results, error_message=None)
 
     except Exception as e:
-        return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
+        return _render_index(results=None, error_message="An error occurred: " + str(e))
 
 @app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
 def trainer_login():
@@ -393,6 +398,41 @@ def trainer_view():
     grouped_entries = build_grouped_entries(log_get_all())
     return render_template("trainer.html", grouped_entries=grouped_entries)
 
+@app.route("/view_once", methods=["POST"], strict_slashes=False)
+def view_once():
+    user_ip, xff_chain, _ip_ok = get_client_ip()
+    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
+    geo = lookup_city(user_ip)
+
+    if is_bot or is_hidden_ip(user_ip):
+        return ("", 204)
+
+    data = request.get_json(silent=True) or {}
+    tab_id = (data.get("tab_id") or "").strip()
+
+    if not tab_id or len(tab_id) > 80:
+        return ("", 204)
+
+    seen = session.get("view_once_seen_tabs", {})
+
+    if not seen.get(tab_id):
+        print_event(
+            event="view",
+            user_ip=user_ip,
+            geo=geo,
+            xff_chain=xff_chain,
+            remote_addr=request.remote_addr or "",
+            payload_lines=None,
+        )
+
+        seen[tab_id] = True
+
+        if len(seen) > 200:
+            seen = dict(list(seen.items())[-200:])
+
+        session["view_once_seen_tabs"] = seen
+
+    return ("", 204)
 
 if __name__ == "__main__":
     app.run()

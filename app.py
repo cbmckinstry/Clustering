@@ -123,7 +123,6 @@ def lookup_city(ip: str):
     except Exception:
         return None
 
-
 def _format_loc(geo):
     if not geo:
         return "Location unknown"

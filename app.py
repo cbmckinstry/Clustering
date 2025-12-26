@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Flask, render_template, request, session, redirect, url_for
 from flask_session import Session
 import calculations
@@ -128,13 +130,51 @@ def _format_loc(geo):
     country = geo.get("country") or "Unknown country"
     return f"{city}, {region}, {country}"
 
+def _now_ts():
+    return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S")
 
-def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
-    loc = _format_loc(geo)
-    print(
-        f"{event.upper()} | ip= {user_ip} | {loc} | inputs= {payload} | xff= {xff_chain} | ra= {remote_addr}",
-        flush=True
+def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload_lines: list[str] | None):
+    if is_hidden_ip(user_ip):
+        return
+
+    print(f"\n{event.upper()} @ {_now_ts()}", flush=True)
+    print(f"  IP: {user_ip}", flush=True)
+    print(f"  Location: {_format_loc(geo)}", flush=True)
+
+    if xff_chain:
+        print(f"  X-Forwarded-For: {xff_chain}", flush=True)
+    if remote_addr:
+        print(f"  Remote Addr: {remote_addr}", flush=True)
+
+    if payload_lines:
+        print("", flush=True)
+        for line in payload_lines:
+            print(line, flush=True)
+
+    print("-" * 40, flush=True)
+
+def build_payload_lines(int1, int2, int3, int4, int5, int_list) -> list[str]:
+    pretty = (
+        f"Single Sites={int1} | "
+        f"Double Sites={int2} | "
+        f"Triple Sites={int3} | "
+        f"Cars={int4} | "
+        f"Vans={int5} | "
+        f"Bus Capacities={int_list}"
     )
+
+    parts = [p.strip() for p in pretty.split("|") if p.strip()]
+    lines = []
+
+    for p in parts:
+        if "=" in p:
+            k, v = p.split("=", 1)
+            lines.append(f"  {k.strip()}: {v.strip()}")
+        else:
+            lines.append(f"  {p}")
+
+    return lines
+
 
 def log_append(entry: dict):
     entry = dict(entry)
@@ -239,14 +279,15 @@ def index():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
-        if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
+        local_ok = (user_ip.startswith("127.") or user_ip == "::1")
+        if (not is_bot) and (ip_ok or local_ok):
             print_event(
-                event="viewer",
+                event="view",
                 user_ip=user_ip,
                 geo=geo,
                 xff_chain=xff_chain,
                 remote_addr=request.remote_addr,
-                payload=None,
+                payload_lines=None,
             )
         return render_template("index.html", results=None, error_message=None)
 
@@ -287,26 +328,6 @@ def index():
         return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
 
 
-def format_inputs_pretty(int1, int2, int3, int4, int5, int_list):
-    return (
-        f"Single Sites={int1} | "
-        f"Double Sites={int2} | "
-        f"Triple Sites={int3} | "
-        f"Cars={int4} | "
-        f"Vans={int5} | "
-        f"Bus Capacities={int_list}"
-    )
-
-
-def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload=None):
-    loc = _format_loc(geo)
-
-    msg = f"{event.upper()} | ip= {user_ip} | loc= {loc} | xff= {xff_chain} | ra= {remote_addr}"
-    if payload is not None:
-        msg += f" | {payload}"
-
-    print(msg, flush=True)
-
 
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
@@ -316,38 +337,36 @@ def test_page():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
-        if (not is_bot) and ip_ok and (not is_hidden_ip(user_ip)):
+        local_ok = (user_ip.startswith("127.") or user_ip == "::1")
+        if (not is_bot) and (ip_ok or local_ok) and (not is_hidden_ip(user_ip)):
             print_event(
                 event="view-test",
                 user_ip=user_ip,
                 geo=geo,
-                xff_chain=xff_chain,
+                xff_chain="",
                 remote_addr=request.remote_addr,
-                payload=None,
+                payload_lines=None,
             )
         return render_template("index.html", results=None, error_message=None)
 
+    # POST stays as your SUBMIT-TEST (with payload_lines)
     try:
         int1, int2, int3, int4, int5, int_list = parse_inputs_from_form()
 
-        pretty = format_inputs_pretty(int1, int2, int3, int4, int5, int_list)
-
-        if not is_hidden_ip(user_ip):
-            print_event(
-                event="user-test",
-                user_ip=user_ip,
-                geo=geo,
-                xff_chain=xff_chain,
-                remote_addr=request.remote_addr,
-                payload=pretty,
-            )
+        print_event(
+            event="submit-test",
+            user_ip=user_ip,
+            geo=geo,
+            xff_chain=xff_chain,  # keep XFF on submit if you want
+            remote_addr=request.remote_addr,
+            payload_lines=build_payload_lines(int1, int2, int3, int4, int5, int_list),
+        )
 
         results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
         return render_template("index.html", results=results, error_message=None)
 
     except Exception as e:
         return render_template("index.html", error_message="An error occurred: " + str(e), results=None)
-
 
 @app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
 def trainer_login():

@@ -215,10 +215,16 @@
 
 <script>
     (function () {
+        // Only log a view when this template is being served at the real home route.
+        // Prevents printing VIEW when index.html is reused for /test (or other routes).
+        if (window.location.pathname !== "/") return;
+
         // tab-only id (dies when tab closes)
         let tabId = sessionStorage.getItem("tab_id");
         if (!tabId) {
-            tabId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + "-" + Math.random());
+            tabId = (crypto && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : (Date.now() + "-" + Math.random());
             sessionStorage.setItem("tab_id", tabId);
         }
 
@@ -229,6 +235,7 @@
         }).catch(() => {});
     })();
 </script>
+
 
 </body>
 </html>

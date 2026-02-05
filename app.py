@@ -10,6 +10,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
 import json
+import uuid
 import ipaddress
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -34,9 +35,18 @@ app.config["SESSION_USE_SIGNER"] = True
 
 app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session:clustering:")
 
+DEVICE_COOKIE_NAME = "device_id"
+DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
+
+def get_device_id() -> str:
+    did = request.cookies.get(DEVICE_COOKIE_NAME)
+    if did and 16 <= len(did) <= 80:
+        return did
+    return uuid.uuid4().hex
+
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
-    app.config["SESSION_REDIS"] = redis.from_url(redis_url)
+    app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url)
 else:
     app.config["SESSION_TYPE"] = "filesystem"
     session_dir = Path(app.instance_path) / "flask_session"
@@ -104,6 +114,40 @@ def get_client_ip():
     ra = request.remote_addr or ""
     return ra, "", is_public_ip(ra)
 
+def build_user_map(entries: list[dict]) -> dict[str, int]:
+    entries_oldest_first = sorted(entries, key=lambda e: e.get("timestamp", ""))
+    first_seen: dict[str, str] = {}
+    for e in entries_oldest_first:
+        did = e.get("device_id")
+        if not did:
+            continue
+        first_seen.setdefault(did, e.get("timestamp", ""))
+
+    ordered = sorted(first_seen.items(), key=lambda x: (x[1], x[0]))
+    return {did: i for i, (did, _) in enumerate(ordered, start=1)}
+
+
+def build_grouped_entries(entries: list[dict]) -> dict[int, list[dict]]:
+    user_map = build_user_map(entries)
+
+    grouped: dict[int, list[dict]] = {}
+    for e in entries:
+        did = e.get("device_id") or ""
+        user_num = user_map.get(did, 0)
+        grouped.setdefault(user_num, []).append(e)
+
+    for u in grouped:
+        grouped[u].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    def newest_ts(u: int) -> str:
+        return grouped[u][0].get("timestamp", "") if grouped[u] else ""
+
+    ordered_users = sorted(grouped.keys(), key=newest_ts, reverse=True)
+
+    ordered_users = sorted(ordered_users, key=lambda u: (u == 0,))
+
+    return {u: grouped[u] for u in ordered_users}
+
 
 def lookup_city(ip: str):
     try:
@@ -134,11 +178,12 @@ def _format_loc(geo):
 def _now_ts():
     return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S")
 
-def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload_lines: list[str] | None):
+def print_event(event: str, user_ip: str, device_id: str, geo, xff_chain: str, remote_addr: str, payload_lines: list[str] | None):
     if is_hidden_ip(user_ip):
         return
 
     print(f"\n{event.upper()} @ {_now_ts()}", flush=True)
+    print(f"  Device: {device_id}", flush=True)
     print(f"  IP: {user_ip}", flush=True)
     print(f"  Location: {_format_loc(geo)}", flush=True)
 
@@ -231,16 +276,6 @@ def purge_hidden_ips_from_storage():
         log_replace_all(filtered)
         print(f"PURGE-HIDDEN removed={len(entries) - len(filtered)}", flush=True)
 
-
-def build_grouped_entries(entries):
-    entries = list(reversed(entries))
-    grouped = {}
-    for e in entries:
-        ip = e.get("ip", "Unknown IP")
-        grouped.setdefault(ip, []).append(e)
-    return grouped
-
-
 def is_trainer_authed() -> bool:
     return bool(session.get("trainer_authed", False))
 
@@ -259,17 +294,8 @@ def parse_inputs_from_form():
 
     return int1, int2, int3, int4, int5, int_list
 
-
-def is_request_bot(user_agent: str) -> bool:
-    ua = (user_agent or "").lower()
-    return (
-            "go-http-client/" in ua
-            or "cron-job.org" in ua
-            or "uptimerobot.com" in ua
-            or ua.strip() == ""
-    )
-
 purge_hidden_ips_from_storage()
+
 
 def _render_index(results=None, error_message=None):
     return render_template(
@@ -285,11 +311,10 @@ def _render_index(results=None, error_message=None):
     )
 
 
-
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip, xff_chain, ip_ok = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
+    device_id = get_device_id()
 
     geo = lookup_city(user_ip)
 
@@ -304,6 +329,7 @@ def index():
 
         log_entry = {
             "ip": user_ip,
+            "device_id": device_id,
             "xff": xff_chain,
             "remote_addr": request.remote_addr,
             "geo": geo,
@@ -339,7 +365,7 @@ def index():
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
     user_ip, xff_chain, ip_ok = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
+    device_id = get_device_id()
 
     geo = lookup_city(user_ip)
 
@@ -360,6 +386,7 @@ def test_page():
         print_event(
             event="submit-test",
             user_ip=user_ip,
+            device_id = device_id,
             geo=geo,
             xff_chain=xff_chain,
             remote_addr=request.remote_addr,
@@ -400,10 +427,10 @@ def trainer_view():
 @app.route("/view_once", methods=["POST"], strict_slashes=False)
 def view_once():
     user_ip, xff_chain, _ip_ok = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
+    device_id = get_device_id()
 
-    if is_bot or is_hidden_ip(user_ip):
+    if is_hidden_ip(user_ip):
         return ("", 204)
 
     data = request.get_json(silent=True) or {}
@@ -418,6 +445,7 @@ def view_once():
         print_event(
             event="view",
             user_ip=user_ip,
+            device_id = device_id,
             geo=geo,
             xff_chain=xff_chain,
             remote_addr=request.remote_addr or "",
@@ -432,6 +460,23 @@ def view_once():
         session["view_once_seen_tabs"] = seen
 
     return ("", 204)
+
+@app.after_request
+def ensure_device_cookie(resp):
+    if request.cookies.get(DEVICE_COOKIE_NAME):
+        return resp
+
+    did = get_device_id()
+    resp.set_cookie(
+        DEVICE_COOKIE_NAME,
+        did,
+        max_age=DEVICE_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=COOKIE_SECURE,
+        path="/",
+    )
+    return resp
 
 if __name__ == "__main__":
     app.run()

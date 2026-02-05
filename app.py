@@ -13,6 +13,7 @@ import json
 import uuid
 import ipaddress
 from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import timedelta
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
@@ -28,7 +29,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=COOKIE_SECURE,
 )
 
-redis_url = os.environ.get("REDIS_URL")
+redis_url = (os.environ.get("REDIS_URL") or "").strip() or None
 
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
@@ -37,6 +38,7 @@ app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session
 
 DEVICE_COOKIE_NAME = "device_id"
 DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
+LOG_RETENTION_DAYS = 365 * 2
 
 def get_device_id() -> str:
     did = request.cookies.get(DEVICE_COOKIE_NAME)
@@ -46,7 +48,7 @@ def get_device_id() -> str:
 
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
-    app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url)
+    app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url, decode_responses=True)
 else:
     app.config["SESSION_TYPE"] = "filesystem"
     session_dir = Path(app.instance_path) / "flask_session"
@@ -78,7 +80,6 @@ def _get_redis():
         return r
     except Exception:
         return None
-
 
 def _next_local_id():
     global LOG_COUNTER
@@ -149,6 +150,40 @@ def _loc_key(geo: dict | None) -> str:
 
     return ", ".join(parts) if parts else "Location unknown"
 
+def purge_old_entries():
+    cutoff = datetime.now(ZoneInfo("America/Chicago")) - timedelta(days=LOG_RETENTION_DAYS)
+
+    def is_recent(e: dict) -> bool:
+        try:
+            ts = datetime.strptime(e.get("timestamp", ""), "%Y-%m-%d  %H:%M:%S")
+            ts = ts.replace(tzinfo=ZoneInfo("America/Chicago"))
+            return ts >= cutoff
+        except Exception:
+            return False  # drop malformed timestamps
+
+    r = _get_redis()
+    if r is not None:
+        raw = r.lrange(LOG_KEY, 0, -1)
+        kept = []
+        for s in raw:
+            try:
+                if isinstance(s, (bytes, bytearray)):
+                    s = s.decode("utf-8", "ignore")
+                e = json.loads(s)
+                if is_recent(e):
+                    kept.append(json.dumps(e))
+            except Exception:
+                pass
+
+        pipe = r.pipeline()
+        pipe.delete(LOG_KEY)
+        if kept:
+            pipe.rpush(LOG_KEY, *kept)
+            pipe.ltrim(LOG_KEY, -MAX_LOG_ENTRIES, -1)
+        pipe.execute()
+    else:
+        global DATA_LOG
+        DATA_LOG = [e for e in DATA_LOG if is_recent(e)]
 
 def build_grouped_entries_by_user_location(entries: list[dict]) -> dict[int, dict[str, list[dict]]]:
     user_map = build_user_map(entries)
@@ -284,9 +319,16 @@ def log_get_all_raw():
     r = _get_redis()
     if r is not None:
         raw = r.lrange(LOG_KEY, 0, -1)
-        return [json.loads(x) for x in raw]
+        out = []
+        for x in raw:
+            try:
+                if isinstance(x, (bytes, bytearray)):
+                    x = x.decode("utf-8", "ignore")
+                out.append(json.loads(x))
+            except Exception:
+                pass
+        return out
     return list(DATA_LOG)
-
 
 def log_get_all():
     return filter_out_hidden_entries(log_get_all_raw())
@@ -458,6 +500,8 @@ def trainer_view():
     if not is_trainer_authed():
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
+
+    purge_old_entries()
 
     grouped_entries = build_grouped_entries_by_user_location(log_get_all())
     return render_template("trainer.html", grouped_entries=grouped_entries)

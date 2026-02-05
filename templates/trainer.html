@@ -9,9 +9,12 @@
         th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: middle; }
         th { background: #f0f0f0; }
         .input-box { white-space: nowrap; }
-        .ip-block { margin-bottom: 35px; padding: 12px; border: 2px solid #ccc; }
-        .ip-heading { margin: 0 0 4px 0; }
-        .ip-meta { font-size: 0.9em; color: #555; margin-left: 6px; }
+
+        .user-block { margin-bottom: 35px; padding: 12px; border: 2px solid #ccc; }
+        .user-heading { margin: 0 0 10px 0; }
+
+        .loc-heading { margin: 10px 0 6px 0; }
+
         .label { font-weight: normal; margin-right: 4px; }
     </style>
 </head>
@@ -21,22 +24,18 @@
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
 {% if grouped_entries %}
-{% for user_num, group in grouped_entries.items() %}
-<div class="ip-block">
+{% for user_num, locs in grouped_entries.items() %}
+<div class="user-block">
 
-    {% set g = group[0].get("geo") if group and group[0] is defined else None %}
-    <h2 class="ip-heading">
+    <h2 class="user-heading">
         {% if user_num == 0 %}Unknown User{% else %}Crew Manager {{ user_num }}{% endif %}
-        {% if g %}
-        <span class="ip-meta">
-                ({{ g.get("city") or "Unknown city" }},
-                 {{ g.get("region") or "Unknown region" }},
-                 {{ g.get("country") or "Unknown country" }})
-            </span>
-        {% else %}
-        <span class="ip-meta">(Location unknown)</span>
-        {% endif %}
     </h2>
+
+    {# locs is an *ordered dict*: newest location first #}
+    {% for loc, group in locs.items() %}
+    <h3 class="loc-heading">
+        <span class="label">Location:</span>{{ loc }}
+    </h3>
 
     <table>
         <thead>
@@ -46,6 +45,7 @@
         </tr>
         </thead>
         <tbody>
+        {# group is newest-first inside this location #}
         {% for e in group %}
         {% set inp = e.get("input") %}
         <tr>
@@ -68,6 +68,7 @@
         {% endfor %}
         </tbody>
     </table>
+    {% endfor %}
 
 </div>
 {% endfor %}

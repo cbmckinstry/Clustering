@@ -126,28 +126,66 @@ def build_user_map(entries: list[dict]) -> dict[str, int]:
     ordered = sorted(first_seen.items(), key=lambda x: (x[1], x[0]))
     return {did: i for i, (did, _) in enumerate(ordered, start=1)}
 
+def _loc_key(geo: dict | None) -> str:
+    if not geo:
+        return "Location unknown"
 
-def build_grouped_entries(entries: list[dict]) -> dict[int, list[dict]]:
+    city = (geo.get("city") or "").strip()
+    region = (geo.get("region") or "").strip()
+    country = (geo.get("country") or "").strip()
+
+    # Special-case localhost
+    if city.lower() == "localhost":
+        return "Localhost"
+
+    # Build a clean, non-annoying label
+    parts = []
+    if city:
+        parts.append(city)
+    if region:
+        parts.append(region)
+    if country and country.lower() != "united states":
+        parts.append(country)
+
+    return ", ".join(parts) if parts else "Location unknown"
+
+
+def build_grouped_entries_by_user_location(entries: list[dict]) -> dict[int, dict[str, list[dict]]]:
     user_map = build_user_map(entries)
 
-    grouped: dict[int, list[dict]] = {}
+    grouped: dict[int, dict[str, list[dict]]] = {}
+
     for e in entries:
         did = e.get("device_id") or ""
         user_num = user_map.get(did, 0)
-        grouped.setdefault(user_num, []).append(e)
+        loc = _loc_key(e.get("geo"))
+        grouped.setdefault(user_num, {}).setdefault(loc, []).append(e)
 
+    # Sort entries newest-first within each location
     for u in grouped:
-        grouped[u].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        for loc in grouped[u]:
+            grouped[u][loc].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
 
-    def newest_ts(u: int) -> str:
-        return grouped[u][0].get("timestamp", "") if grouped[u] else ""
+    # Sort locations newest-first within each user (based on newest entry in that loc)
+    def loc_newest_ts(u: int, loc: str) -> str:
+        return grouped[u][loc][0].get("timestamp", "") if grouped[u][loc] else ""
 
-    ordered_users = sorted(grouped.keys(), key=newest_ts, reverse=True)
+    ordered_grouped: dict[int, dict[str, list[dict]]] = {}
+    for u in grouped:
+        locs_sorted = sorted(grouped[u].keys(), key=lambda loc: loc_newest_ts(u, loc), reverse=True)
+        ordered_grouped[u] = {loc: grouped[u][loc] for loc in locs_sorted}
 
-    ordered_users = sorted(ordered_users, key=lambda u: (u == 0,))
+    # Sort users newest-first (based on newest entry in their newest location)
+    def user_newest_ts(u: int) -> str:
+        first_loc = next(iter(ordered_grouped[u].keys()), "")
+        if not first_loc:
+            return ""
+        return ordered_grouped[u][first_loc][0].get("timestamp", "")
 
-    return {u: grouped[u] for u in ordered_users}
+    users_sorted = sorted(ordered_grouped.keys(), key=user_newest_ts, reverse=True)
+    users_sorted = sorted(users_sorted, key=lambda u: (u == 0,))  # Unknown user to bottom
 
+    return {u: ordered_grouped[u] for u in users_sorted}
 
 def lookup_city(ip: str):
     try:
@@ -421,7 +459,7 @@ def trainer_view():
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
 
-    grouped_entries = build_grouped_entries(log_get_all())
+    grouped_entries = build_grouped_entries_by_user_location(log_get_all())
     return render_template("trainer.html", grouped_entries=grouped_entries)
 
 @app.route("/view_once", methods=["POST"], strict_slashes=False)

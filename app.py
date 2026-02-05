@@ -479,23 +479,20 @@ def view_once():
 
     seen = session.get("view_once_seen_tabs", {})
 
-    if not seen.get(tab_id):
+    last_ip = seen.get(tab_id)
+    if last_ip != user_ip:
         print_event(
             event="view",
             user_ip=user_ip,
-            device_id = device_id,
+            device_id=device_id,
             geo=geo,
             xff_chain=xff_chain,
             remote_addr=request.remote_addr or "",
             payload_lines=None,
         )
-
-        seen[tab_id] = True
-
-        if len(seen) > 200:
-            seen = dict(list(seen.items())[-200:])
-
+        seen[tab_id] = user_ip
         session["view_once_seen_tabs"] = seen
+
 
     return ("", 204)
 

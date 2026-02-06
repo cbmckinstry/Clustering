@@ -14,8 +14,6 @@ import uuid
 import ipaddress
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import timedelta
-import logging
-import sys
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
@@ -519,14 +517,14 @@ def view_once():
 
     data = request.get_json(silent=True) or {}
     tab_id = (data.get("tab_id") or "").strip()
-
     if not tab_id or len(tab_id) > 80:
         return ("", 204)
 
     seen = session.get("view_once_seen_tabs", {})
-
     last_ip = seen.get(tab_id)
+
     if last_ip != user_ip:
+        # include tab_id so the print output is actually useful
         print_event(
             event="view",
             user_ip=user_ip,
@@ -534,11 +532,17 @@ def view_once():
             geo=geo,
             xff_chain=xff_chain,
             remote_addr=request.remote_addr or "",
-            payload_lines=None,
+            payload_lines=[f"  Tab: {tab_id}"],
         )
-        seen[tab_id] = user_ip
-        session["view_once_seen_tabs"] = seen
 
+        seen[tab_id] = user_ip
+
+        # safety cap like your second app
+        if len(seen) > 200:
+            items = list(seen.items())[-200:]
+            seen = dict(items)
+
+        session["view_once_seen_tabs"] = seen
 
     return ("", 204)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, render_template, request, session, redirect, url_for
+from flask import Flask, render_template, request, session, redirect, url_for, g
 from flask_session import Session
 import calculations
 import os
@@ -41,10 +41,16 @@ DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
 LOG_RETENTION_DAYS = 365 * 2
 
 def get_device_id() -> str:
+    if hasattr(g, "device_id"):
+        return g.device_id
+
     did = request.cookies.get(DEVICE_COOKIE_NAME)
     if did and 16 <= len(did) <= 80:
+        g.device_id = did
         return did
-    return uuid.uuid4().hex
+
+    g.device_id = uuid.uuid4().hex
+    return g.device_id
 
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
@@ -127,28 +133,14 @@ def build_user_map(entries: list[dict]) -> dict[str, int]:
     ordered = sorted(first_seen.items(), key=lambda x: (x[1], x[0]))
     return {did: i for i, (did, _) in enumerate(ordered, start=1)}
 
-def _loc_key(geo: dict | None) -> str:
+def _location_key_from_geo(geo: dict | None) -> str:
     if not geo:
         return "Location unknown"
+    city = geo.get("city") or "Unknown city"
+    region = geo.get("region") or "Unknown region"
+    country = geo.get("country") or "Unknown country"
+    return f"{city}, {region}, {country}"
 
-    city = (geo.get("city") or "").strip()
-    region = (geo.get("region") or "").strip()
-    country = (geo.get("country") or "").strip()
-
-    # Special-case localhost
-    if city.lower() == "localhost":
-        return "Localhost"
-
-    # Build a clean, non-annoying label
-    parts = []
-    if city:
-        parts.append(city)
-    if region:
-        parts.append(region)
-    if country and country.lower() != "united states":
-        parts.append(country)
-
-    return ", ".join(parts) if parts else "Location unknown"
 
 def purge_old_entries():
     cutoff = datetime.now(ZoneInfo("America/Chicago")) - timedelta(days=LOG_RETENTION_DAYS)
@@ -193,7 +185,7 @@ def build_grouped_entries_by_user_location(entries: list[dict]) -> dict[int, dic
     for e in entries:
         did = e.get("device_id") or ""
         user_num = user_map.get(did, 0)
-        loc = _loc_key(e.get("geo"))
+        loc = _location_key_from_geo(e.get("geo"))
         grouped.setdefault(user_num, {}).setdefault(loc, []).append(e)
 
     # Sort entries newest-first within each location
@@ -399,7 +391,7 @@ def index():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
-
+        _ = get_device_id()
         return _render_index(results=None, error_message=None)
 
 
@@ -450,6 +442,7 @@ def test_page():
     geo = lookup_city(user_ip)
 
     if request.method == "GET":
+        _ = get_device_id()
         return _render_index(results=None, error_message=None)
 
     try:
@@ -547,10 +540,15 @@ def view_once():
     return ("", 204)
 
 @app.after_request
-def ensure_device_cookie(resp):
-    if request.cookies.get(DEVICE_COOKIE_NAME):
+def after_request(resp):
+    # Debug incoming/outgoing cookie behavior
+    incoming = request.cookies.get(DEVICE_COOKIE_NAME)
+
+    if incoming:
+        # cookie already present, nothing to set
         return resp
 
+    # cookie missing -> set it
     did = get_device_id()
     resp.set_cookie(
         DEVICE_COOKIE_NAME,
@@ -561,7 +559,19 @@ def ensure_device_cookie(resp):
         secure=COOKIE_SECURE,
         path="/",
     )
+
+    print(
+        "OUT setting device_id =", did,
+        "secure =", COOKIE_SECURE,
+        "host =", request.host,
+        "scheme =", request.scheme,
+        flush=True
+    )
     return resp
+
+@app.before_request
+def dbg_device_cookie_in():
+    print("IN cookie device_id =", request.cookies.get(DEVICE_COOKIE_NAME), "host=", request.host, "scheme=", request.scheme, flush=True)
 
 if __name__ == "__main__":
     app.run()

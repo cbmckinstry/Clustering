@@ -40,15 +40,23 @@ DEVICE_COOKIE_NAME = "device_id"
 DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
 LOG_RETENTION_DAYS = 365 * 2
 
+def _valid_device_cookie(val: str | None) -> bool:
+    if not val:
+        return False
+    val = val.strip()
+    return 16 <= len(val) <= 80
+
 def get_device_id() -> str:
+    # Always stable within the request
     if hasattr(g, "device_id"):
         return g.device_id
 
     did = request.cookies.get(DEVICE_COOKIE_NAME)
-    if did and 16 <= len(did) <= 80:
-        g.device_id = did
-        return did
+    if _valid_device_cookie(did):
+        g.device_id = did.strip()
+        return g.device_id
 
+    # no valid cookie -> generate once and cache for this request
     g.device_id = uuid.uuid4().hex
     return g.device_id
 
@@ -540,16 +548,13 @@ def view_once():
     return ("", 204)
 
 @app.after_request
-def after_request(resp):
-    # Debug incoming/outgoing cookie behavior
+def ensure_device_cookie(resp):
+    # Ensure cookie exists AND is valid; otherwise overwrite with the request's device_id
     incoming = request.cookies.get(DEVICE_COOKIE_NAME)
-
-    if incoming:
-        # cookie already present, nothing to set
+    if _valid_device_cookie(incoming):
         return resp
 
-    # cookie missing -> set it
-    did = get_device_id()
+    did = get_device_id()  # uses cached g.device_id
     resp.set_cookie(
         DEVICE_COOKIE_NAME,
         did,
@@ -558,14 +563,6 @@ def after_request(resp):
         samesite="Lax",
         secure=COOKIE_SECURE,
         path="/",
-    )
-
-    print(
-        "OUT setting device_id =", did,
-        "secure =", COOKIE_SECURE,
-        "host =", request.host,
-        "scheme =", request.scheme,
-        flush=True
     )
     return resp
 

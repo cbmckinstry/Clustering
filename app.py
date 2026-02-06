@@ -445,9 +445,6 @@ def index():
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
     user_ip, xff_chain, ip_ok = get_client_ip()
-    device_id = get_device_id()
-
-    geo = lookup_city(user_ip)
 
     if request.method == "GET":
         _ = get_device_id()
@@ -462,17 +459,6 @@ def test_page():
         session["int4"] = int4
         session["int5"] = int5
         session["int_list"] = int_list
-
-
-        print_event(
-            event="submit-test",
-            user_ip=user_ip,
-            device_id = device_id,
-            geo=geo,
-            xff_chain=xff_chain,
-            remote_addr=request.remote_addr,
-            payload_lines=build_payload_lines(int1, int2, int3, int4, int5, int_list),
-        )
 
         results = calculations.cluster(int1, int2, int3, int4, int5, int_list)
         return _render_index(results=results, error_message=None)
@@ -565,10 +551,6 @@ def ensure_device_cookie(resp):
         path="/",
     )
     return resp
-
-@app.before_request
-def dbg_device_cookie_in():
-    print("IN cookie device_id =", request.cookies.get(DEVICE_COOKIE_NAME), "host=", request.host, "scheme=", request.scheme, flush=True)
 
 if __name__ == "__main__":
     app.run()

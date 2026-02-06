@@ -29,7 +29,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=COOKIE_SECURE,
 )
 
-redis_url = (os.environ.get("REDIS_URL") or "").strip() or None
+redis_url = os.environ.get("REDIS_URL", "").strip()
 
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True

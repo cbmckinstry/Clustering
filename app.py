@@ -14,6 +14,11 @@ import uuid
 import ipaddress
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import timedelta
+import logging
+import sys
+import time
+import traceback
+from uuid import uuid4
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
@@ -54,6 +59,25 @@ else:
     session_dir = Path(app.instance_path) / "flask_session"
     session_dir.mkdir(parents=True, exist_ok=True)
     app.config["SESSION_FILE_DIR"] = str(session_dir)
+
+
+# --- logging setup ---
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter(
+    "%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+handler.setFormatter(formatter)
+
+app.logger.handlers = []          # avoid double logging under gunicorn
+app.logger.propagate = False
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
+
+app.logger.info("BOOT python=%s", sys.version.replace("\n", " "))
+app.logger.info("BOOT IS_RENDER=%s redis_url_set=%s", IS_RENDER, bool(redis_url))
+
 
 Session(app)
 
@@ -149,6 +173,39 @@ def _loc_key(geo: dict | None) -> str:
         parts.append(country)
 
     return ", ".join(parts) if parts else "Location unknown"
+
+@app.before_request
+def _log_request_start():
+    request.environ["rid"] = uuid4().hex[:10]
+    request.environ["t0"] = time.time()
+    app.logger.info(
+        "REQ start rid=%s method=%s path=%s ua=%s",
+        request.environ["rid"],
+        request.method,
+        request.path,
+        (request.headers.get("User-Agent", "")[:120]),
+    )
+
+@app.after_request
+def _log_request_end(resp):
+    rid = request.environ.get("rid", "unknown")
+    t0 = request.environ.get("t0")
+    ms = int((time.time() - t0) * 1000) if t0 else -1
+    app.logger.info(
+        "REQ end rid=%s status=%s ms=%s",
+        rid,
+        resp.status_code,
+        ms,
+    )
+    return resp
+
+@app.errorhandler(Exception)
+def _log_unhandled_exception(e):
+    rid = request.environ.get("rid", "unknown")
+    app.logger.error("EXC rid=%s err=%r", rid, e)
+    traceback.print_exc()  # full stacktrace to Render logs
+    # keep user-facing output simple
+    return _render_index(results=None, error_message=f"Server error (rid={rid})"), 500
 
 def purge_old_entries():
     cutoff = datetime.now(ZoneInfo("America/Chicago")) - timedelta(days=LOG_RETENTION_DAYS)

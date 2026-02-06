@@ -48,7 +48,7 @@ def get_device_id() -> str:
 
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
-    app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url, decode_responses=True)
+    app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url)
 else:
     app.config["SESSION_TYPE"] = "filesystem"
     session_dir = Path(app.instance_path) / "flask_session"

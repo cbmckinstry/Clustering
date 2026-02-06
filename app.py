@@ -440,11 +440,8 @@ def index():
     except Exception as e:
         return _render_index(results=None, error_message="An error occurred: " + str(e))
 
-
-
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
-    user_ip, xff_chain, ip_ok = get_client_ip()
 
     if request.method == "GET":
         _ = get_device_id()

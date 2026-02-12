@@ -550,22 +550,25 @@ def view_once():
     return ("", 204)
 
 @app.after_request
-def ensure_device_cookie(resp):
-    # Ensure cookie exists AND is valid; otherwise overwrite with the request's device_id
-    incoming = request.cookies.get(DEVICE_COOKIE_NAME)
-    if _valid_device_cookie(incoming):
-        return resp
+def after_request(resp):
+    if request.path.startswith("/trainer"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
 
-    did = get_device_id()  # uses cached g.device_id
-    resp.set_cookie(
-        DEVICE_COOKIE_NAME,
-        did,
-        max_age=DEVICE_COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="Lax",
-        secure=COOKIE_SECURE,
-        path="/",
-    )
+    incoming = request.cookies.get(DEVICE_COOKIE_NAME)
+    if not _valid_device_cookie(incoming):
+        did = get_device_id()
+        resp.set_cookie(
+            DEVICE_COOKIE_NAME,
+            did,
+            max_age=DEVICE_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=COOKIE_SECURE,
+            path="/",
+        )
+
     return resp
 
 if __name__ == "__main__":

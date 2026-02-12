@@ -374,6 +374,25 @@ def parse_inputs_from_form():
 
     return int1, int2, int3, int4, int5, int_list
 
+WIPE_ALL_IPS_RAW = os.environ.get("WIPE_ALL_IPS", "").strip().lower()
+WIPE_ALL_IPS = WIPE_ALL_IPS_RAW in {"1", "true", "yes", "y", "on"}
+
+def wipe_all_ip_logs_from_storage():
+    global DATA_LOG, LOG_COUNTER
+
+    r = _get_redis()
+    if r is not None:
+        pipe = r.pipeline()
+        pipe.delete(LOG_KEY)
+        pipe.delete(ID_KEY)
+        pipe.execute()
+    else:
+        DATA_LOG = []
+        LOG_COUNTER = 0
+
+if WIPE_ALL_IPS:
+    wipe_all_ip_logs_from_storage()
+
 purge_hidden_ips_from_storage()
 
 

@@ -17,6 +17,26 @@
 
         .label { font-weight: normal; margin-right: 4px; }
     </style>
+
+    <style>
+        html { visibility: hidden; }
+    </style>
+
+    <script>
+        (function () {
+            const TAB_KEY = "tab_ok_trainer";
+            const LOGIN_URL = "{{ url_for('trainer_login') }}";
+
+            if (!sessionStorage.getItem(TAB_KEY)) {
+                window.location.replace(LOGIN_URL);
+                return;
+            }
+
+            // Passed tab check → allow page to render
+            document.documentElement.style.visibility = "visible";
+        })();
+    </script>
+
 </head>
 <body>
 
@@ -75,17 +95,6 @@
 {% else %}
 <p>No entries logged yet.</p>
 {% endif %}
-
-<script>
-    (function () {
-        const TAB_KEY = "tab_ok_trainer";
-        const LOGIN_URL = "{{ url_for('trainer_login') }}";
-        if (!sessionStorage.getItem(TAB_KEY)) {
-            window.location.replace(LOGIN_URL);
-            return;
-        }
-    })();
-</script>
 
 <script>
     (function () {

@@ -79,13 +79,17 @@
                 &nbsp;&nbsp;<span class="label">Triple Sites:</span>{{ inp.get("int3", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Cars:</span>{{ inp.get("int4", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Vans:</span>{{ inp.get("int5", "NULL") }}
-                &nbsp;&nbsp;<span class="label">Bus Capacities:</span>{{ inp.get("int_list", "NULL") }}
+                &nbsp;&nbsp;<span class="label">Bus Capacities:</span>
+                {% set buses = inp.get("int_list") %}
+                {% if buses is none or buses == []%}
+                None
                 {% else %}
-                {{ inp }}
+                {{ buses }}
+                {% endif %}
                 {% endif %}
             </td>
+            {% endfor %}
         </tr>
-        {% endfor %}
         </tbody>
     </table>
     {% endfor %}

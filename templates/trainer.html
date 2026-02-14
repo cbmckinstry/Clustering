@@ -16,9 +16,7 @@
         .loc-heading { margin: 10px 0 6px 0; }
 
         .label { font-weight: normal; margin-right: 4px; }
-    </style>
 
-    <style>
         html { visibility: hidden; }
     </style>
 
@@ -62,6 +60,7 @@
         <tr>
             <th>Timestamp (Central Time)</th>
             <th>Inputs</th>
+            <th>Bus Capacities</th>
         </tr>
         </thead>
         <tbody>
@@ -70,6 +69,7 @@
         {% set inp = e.get("input") %}
         <tr>
             <td>{{ e.get("timestamp") }}</td>
+
             <td class="input-box">
                 {% if not inp %}
                 NULL
@@ -79,17 +79,25 @@
                 &nbsp;&nbsp;<span class="label">Triple Sites:</span>{{ inp.get("int3", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Cars:</span>{{ inp.get("int4", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Vans:</span>{{ inp.get("int5", "NULL") }}
-                &nbsp;&nbsp;<span class="label">Bus Capacities:</span>
+                {% else %}
+                NULL
+                {% endif %}
+            </td>
+
+            <td>
+                {% if inp is mapping %}
                 {% set buses = inp.get("int_list") %}
-                {% if buses is none or buses == []%}
+                {% if buses is none or buses == [] %}
                 None
                 {% else %}
                 {{ buses }}
                 {% endif %}
+                {% else %}
+                NULL
                 {% endif %}
             </td>
-            {% endfor %}
         </tr>
+        {% endfor %}
         </tbody>
     </table>
     {% endfor %}

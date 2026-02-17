@@ -3,6 +3,11 @@
 <head>
     <meta charset="utf-8">
     <title>Signing in…</title>
+
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon-64x364.png') }}" sizes="64x64">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon-64x64.png') }}">
+
     <script>
         (function () {
             const tabKey = {{ tab_key | tojson }};
